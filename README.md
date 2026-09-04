@@ -21,7 +21,7 @@
 - Node.js 22+、npm、TypeScript strict
 - Phaser 3.90.0
 - Vite 8 + Express 5，同一個 process／同源 API
-- OpenAI JavaScript SDK + Responses Structured Outputs + Zod
+- OpenAI JavaScript SDK + OpenAI-compatible v1 Chat Completions + Zod
 - MediaPipe Face Landmarker（本地 model／WASM、Worker 推論）
 - Vitest + Playwright（390×844 Android Chrome profile、iPhone WebKit profile）
 
@@ -51,12 +51,31 @@ npm run dev
 ```env
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5-mini
+OPENAI_BASE_URL=
+OPENAI_INITIAL_PROMPT="Always use zh-Hant-TW Traditional Chinese for every player-facing text field. Never output Simplified Chinese. Make the boss verbose, witty, and unmistakably related to the user's annoyance."
+OPENAI_TIMEOUT_MS=5500
 PORT=4173
 ```
 
-- 沒有 `OPENAI_API_KEY`、斷網、模型拒絕、非 2xx、無效 schema 或 API 超過 3.5 秒時，客戶端會立即使用本地 fallback Boss。
+- AI 呼叫使用 OpenAI-compatible `POST /v1/chat/completions`。連接 OpenAI 時可將 `OPENAI_BASE_URL` 留空；連接本地 LLM 時填入服務的 v1 root，例如 `http://127.0.0.1:11434/v1`。
+- 本地服務不要求驗證時可將 `OPENAI_API_KEY` 留空；只要有 `OPENAI_BASE_URL`，server 仍會呼叫本地模型。若服務要求 token，請正常填入 API key。
+- 沒有 `OPENAI_API_KEY` 且沒有 `OPENAI_BASE_URL`、斷網、模型拒絕、非 2xx、無效 JSON/schema 或 API 超過 6 秒時，客戶端會立即使用本地 fallback Boss。
 - API key 只由 Node server 讀取，不會進入前端 bundle、HTML 或 localStorage。
-- `OPENAI_MODEL` 只在伺服器端設定；預設 `gpt-5-mini`。
+- `OPENAI_MODEL` 只在伺服器端設定；OpenAI 預設為 `gpt-5-mini`，本地服務請改成已載入的模型名稱。
+- `OPENAI_INITIAL_PROMPT` 會放在固定安全規則之前，可用來補充本地模型指令；固定規則不會被取代。
+- 所有 AI 產生的玩家可見文字都會在 server 端以 OpenCC 轉成台灣繁體，再次通過 `BossDNASchema` 後才回傳，因此不只依賴模型遵守提示詞。
+
+例如 Ollama 的 OpenAI-compatible endpoint：
+
+```env
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_MODEL=qwen3:8b
+OPENAI_API_KEY=
+OPENAI_INITIAL_PROMPT="Always use zh-Hant-TW Traditional Chinese for every player-facing text field. Never output Simplified Chinese. Make the boss verbose, witty, and unmistakably related to the user's annoyance."
+OPENAI_TIMEOUT_MS=5500
+```
+
+本地服務必須支援 Chat Completions 的 `response_format.type=json_schema`。模型輸出仍會在 server 端重新解析並通過 `BossDNASchema`，不合法時不會進入遊戲。
 
 ## 操作
 
@@ -69,6 +88,8 @@ PORT=4173
 - 三次主要撞擊（每次 34 傷害）即可勝利；時間到或生命歸零則失敗。
 
 招式包含 `paper_rain`、`comment_crossfire`、`deadline_beam`、`closing_walls`、`revision_homing`、`returnable_burst`。BossDNA 的三段招式會依 seed 與順序循環至回合結束；戰鬥布局不使用 `Math.random()`。
+
+AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念。生成分成兩個連續 API 呼叫，每批 6 句；loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句，受傷、反彈、弱點開啟與主要撞擊時也會觸發。
 
 ## 相機與隱私
 
@@ -138,7 +159,7 @@ PORT=4173 OPENAI_API_KEY=... npm start
 - [x] Gate 0：Vite／Express／Phaser 單一服務、540×960 responsive canvas、production build。
 - [x] Gate 1：fallback 垂直切片、果凍彈簧拖曳、hit／graze／energy、三擊勝利、結果頁。
 - [x] Gate 2：六種 deterministic pattern、分波預警／安全通道／清場空檔、2.5D 射入、反彈文件、75 秒失敗、音效、失焦暫停、debug、mobile E2E。
-- [x] Gate 3：BossDNA Schema、OpenAI Structured Outputs、rate limit、4 KB body、server/client 雙層 fallback。
+- [x] Gate 3：BossDNA Schema、OpenAI-compatible v1 Chat Completions Structured Outputs、可設定 local LLM base URL、rate limit、4 KB body、server/client 雙層 fallback。
 - [x] Gate 4：明確同意、2 秒 median baseline、Worker 8–10 Hz、main-thread fallback、Neutral/EMA、完整清理。
 - [ ] Gate 5：官方素材／指南整合、PWA meta、安全區、橫向暫停、固定 540×960 backing canvas（不乘上未受控的裝置 DPR）、低 FPS 殘影／液滴降級與 Android Chrome／iPhone WebKit profile 自動 QA 已完成；提交前仍需 Android Chrome、iPhone Safari 與實體相機人工驗收。
 

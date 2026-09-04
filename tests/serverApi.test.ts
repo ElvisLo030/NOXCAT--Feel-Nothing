@@ -13,6 +13,7 @@ interface RunningApi {
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalApiKey = process.env.OPENAI_API_KEY;
+const originalBaseUrl = process.env.OPENAI_BASE_URL;
 
 async function startApi(): Promise<RunningApi> {
   const app = await createApp();
@@ -44,6 +45,7 @@ describe('POST /api/boss acceptance boundary', () => {
   beforeEach(() => {
     process.env.NODE_ENV = 'production';
     delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
   });
 
@@ -53,6 +55,8 @@ describe('POST /api/boss acceptance boundary', () => {
     else process.env.NODE_ENV = originalNodeEnv;
     if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = originalApiKey;
+    if (originalBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = originalBaseUrl;
     vi.restoreAllMocks();
   });
 
@@ -109,6 +113,39 @@ describe('POST /api/boss acceptance boundary', () => {
       source: 'fallback',
       boss: FALLBACK_BOSS,
     });
+  });
+
+  it('returns two independently validated batches of six lines', async () => {
+    const baseUrl = await freshApi();
+    const initialResponse = await postBoss(baseUrl, {
+      stage: 'initial',
+      annoyance: '需求一直改',
+      locale: 'zh-TW',
+    });
+    const initial = await initialResponse.json() as {
+      source: string;
+      boss: { bossName: string; battleLines: string[] };
+    };
+
+    expect(initialResponse.status).toBe(200);
+    expect(initial.source).toBe('fallback');
+    expect(initial.boss.battleLines).toHaveLength(6);
+
+    const continuationResponse = await postBoss(baseUrl, {
+      stage: 'continuation',
+      annoyance: '需求一直改',
+      bossName: initial.boss.bossName,
+      previousLines: initial.boss.battleLines,
+      locale: 'zh-TW',
+    });
+    const continuation = await continuationResponse.json() as {
+      source: string;
+      battleLines: string[];
+    };
+
+    expect(continuationResponse.status).toBe(200);
+    expect(continuation.source).toBe('fallback');
+    expect(continuation.battleLines).toHaveLength(6);
   });
 
   it('rate limits the eleventh request from the same IP', async () => {

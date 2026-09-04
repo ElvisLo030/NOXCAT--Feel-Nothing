@@ -26,6 +26,17 @@ describe('BossDNASchema', () => {
     expect(BossDNASchema.safeParse(candidate).success).toBe(false);
   });
 
+  it('requires exactly twelve concise AI battle lines', () => {
+    expect(BossDNASchema.safeParse({
+      ...FALLBACK_BOSS,
+      battleLines: FALLBACK_BOSS.battleLines.slice(0, 11),
+    }).success).toBe(false);
+    expect(BossDNASchema.safeParse({
+      ...FALLBACK_BOSS,
+      battleLines: ['太'.repeat(29), ...FALLBACK_BOSS.battleLines.slice(1)],
+    }).success).toBe(false);
+  });
+
   it.each([0, 4, 1.5])('rejects invalid intensity %s', (intensity) => {
     const candidate = {
       ...FALLBACK_BOSS,
