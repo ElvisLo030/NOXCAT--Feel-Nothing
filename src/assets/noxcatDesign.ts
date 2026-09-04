@@ -58,8 +58,8 @@ export const NOXCAT_EYES = [
 export function sampleNoxcatBunOutline(samplesPerCurve = 12): NoxcatDesignPoint[] {
   const steps = Math.max(2, Math.floor(samplesPerCurve));
   const points: NoxcatDesignPoint[] = [{ ...NOXCAT_BUN_START }];
-  let fromX = NOXCAT_BUN_START.x;
-  let fromY = NOXCAT_BUN_START.y;
+  let fromX: number = NOXCAT_BUN_START.x;
+  let fromY: number = NOXCAT_BUN_START.y;
 
   for (const [control1X, control1Y, control2X, control2Y, endX, endY] of NOXCAT_BUN_CURVES) {
     for (let index = 1; index <= steps; index += 1) {

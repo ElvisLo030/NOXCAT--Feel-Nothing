@@ -74,8 +74,7 @@ export class AssetRegistry {
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
 
-    // Keep the Logo's clean oval language: one official-green fill per eye,
-    // without pupils, irises, gradients or highlights.
+    // Keep the Logo's clean oval language: one unbroken official-green shape per eye.
     graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 1);
     for (const eye of NOXCAT_EYES) {
       graphics.fillEllipse(eye.x, eye.y, eye.width, eye.height);
