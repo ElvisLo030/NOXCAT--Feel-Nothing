@@ -197,10 +197,13 @@ export class AttackDirector {
   private phaseDuration(pattern: PatternId, stepDurationMs: number, phase: WavePhase): number {
     const telegraph = TELEGRAPH_MS[pattern];
     const recovery = RECOVERY_MS[pattern];
-    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * (this.pacing?.telegraphScale ?? 1)));
-    if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * (this.pacing?.recoveryScale ?? 1)));
-    const scaledTelegraph = telegraph * (this.pacing?.telegraphScale ?? 1);
-    const scaledRecovery = recovery * (this.pacing?.recoveryScale ?? 1);
+    const isBeam = pattern === 'deadline_beam';
+    const telegraphScale = isBeam ? 1 : (this.pacing?.telegraphScale ?? 1);
+    const recoveryScale = isBeam ? 1 : (this.pacing?.recoveryScale ?? 1);
+    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * telegraphScale));
+    if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * recoveryScale));
+    const scaledTelegraph = telegraph * telegraphScale;
+    const scaledRecovery = recovery * recoveryScale;
     return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
   }
 
@@ -238,7 +241,7 @@ export class AttackDirector {
     const player = this.playerPosition();
     switch (pattern) {
       case 'paper_rain': {
-        spawnPaperRain(this.projectiles, this.rng, intensity, speedScale, this.paperSafeLane);
+        spawnPaperRain(this.projectiles, this.rng, intensity, speedScale * 1.15, this.paperSafeLane);
         break;
       }
       case 'comment_crossfire':
@@ -252,7 +255,7 @@ export class AttackDirector {
         );
         break;
       case 'deadline_beam':
-        spawnDeadlineBeam(this.projectiles, this.rng, this.pacing?.telegraphScale ?? 1);
+        spawnDeadlineBeam(this.projectiles, this.rng, 1);
         break;
       case 'closing_walls': {
         spawnClosingWalls(

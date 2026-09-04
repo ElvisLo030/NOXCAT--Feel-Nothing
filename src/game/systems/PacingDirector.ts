@@ -42,7 +42,7 @@ export function computePacing(input: PacingInput): PacingScale {
   const hitsBehind = expectedHits - mainHits;
 
   const endgameBoost = remaining < 20_000 ? ((20_000 - remaining) / 20_000) * 0.18 : 0;
-  const baseUrgency = clamp(progress * 0.32 + endgameBoost, 0, 0.40);
+  const baseUrgency = clamp(progress * 0.32 + endgameBoost, 0, 0.52);
 
   let relief = 0;
   if (hitsBehind > 0.65) relief += clamp(hitsBehind * 0.08, 0, 0.12);
@@ -52,16 +52,16 @@ export function computePacing(input: PacingInput): PacingScale {
   if (input.lives <= 1 && hitsBehind > 0) relief += 0.03;
   relief = clamp(relief, 0, 0.18);
 
-  const urgency = clamp(baseUrgency, 0, 0.60);
+  const urgency = clamp(baseUrgency, 0, 0.65);
 
-  const rawSpeedBoost = urgency * 0.38;
+  const rawSpeedBoost = urgency * 0.55;
   const rawTelegraphReduction = urgency * 0.20;
-  const rawRecoveryReduction = urgency * 0.48;
+  const rawRecoveryReduction = urgency * 0.75;
   const rawVulnerableReduction = urgency * 0.18;
 
-  const speedScale = clamp(1 + rawSpeedBoost - relief, 0.85, 1.25);
+  const speedScale = clamp(1 + rawSpeedBoost - relief, 0.85, 1.35);
   const telegraphScale = clamp(1 - rawTelegraphReduction + relief * 0.30, 0.75, 1);
-  const recoveryScale = clamp(1 - rawRecoveryReduction + relief * 0.60, 0.55, 1);
+  const recoveryScale = clamp(1 - rawRecoveryReduction + relief * 0.60, 0.40, 1);
   const vulnerableScale = clamp(1 - rawVulnerableReduction + relief * 0.40, 0.70, 1);
   const combatScale = clamp(0.55 + urgency * 0.08 - relief * 0.05, 0.52, 0.65);
 
