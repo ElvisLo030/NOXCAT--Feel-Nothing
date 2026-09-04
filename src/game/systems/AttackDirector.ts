@@ -24,6 +24,7 @@ import {
   moveTowards,
   type PlayerPosition,
 } from '../patterns/fairness';
+import type { PacingScale } from './PacingDirector';
 import type { ProjectileSystem } from './ProjectileSystem';
 
 export type WavePhase = 'TELEGRAPH' | 'ACTIVE' | 'RECOVERY';
@@ -75,6 +76,7 @@ export class AttackDirector {
   private commentSafeLane = 650;
   private returnableSafeLane = 270;
   private wallSafeGap = 650;
+  private pacing: PacingScale | null = null;
 
   constructor(
     private readonly dna: BossDNA,
@@ -123,6 +125,14 @@ export class AttackDirector {
   cancelCurrent(): void {
     this.running = false;
     this.projectiles.clearDangerous(true);
+  }
+
+  setPacingScale(scale: PacingScale | null): void {
+    this.pacing = scale;
+  }
+
+  get pacingScale(): PacingScale | null {
+    return this.pacing;
   }
 
   update(deltaMs: number, playerLives: number): void {
@@ -185,9 +195,13 @@ export class AttackDirector {
   }
 
   private phaseDuration(pattern: PatternId, stepDurationMs: number, phase: WavePhase): number {
-    if (phase === 'TELEGRAPH') return TELEGRAPH_MS[pattern];
-    if (phase === 'RECOVERY') return RECOVERY_MS[pattern];
-    return Math.max(1, stepDurationMs - TELEGRAPH_MS[pattern] - RECOVERY_MS[pattern]);
+    const telegraph = TELEGRAPH_MS[pattern];
+    const recovery = RECOVERY_MS[pattern];
+    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * (this.pacing?.telegraphScale ?? 1)));
+    if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * (this.pacing?.recoveryScale ?? 1)));
+    const scaledTelegraph = telegraph * (this.pacing?.telegraphScale ?? 1);
+    const scaledRecovery = recovery * (this.pacing?.recoveryScale ?? 1);
+    return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
   }
 
   private advanceWavePhase(
@@ -198,7 +212,9 @@ export class AttackDirector {
     this.phaseElapsedMs = 0;
     if (this.wavePhase === 'TELEGRAPH') {
       this.wavePhase = 'ACTIVE';
-      const speedScale = playerLives <= 1 ? 0.87 : 1;
+      const baseLifeScale = playerLives <= 1 ? 0.87 : 1;
+      const pacingSpeed = this.pacing?.speedScale ?? 1;
+      const speedScale = baseLifeScale * pacingSpeed;
       this.spawnPattern(pattern, intensity, speedScale);
       this.volley += 1;
     } else if (this.wavePhase === 'ACTIVE') {
@@ -236,7 +252,7 @@ export class AttackDirector {
         );
         break;
       case 'deadline_beam':
-        spawnDeadlineBeam(this.projectiles, this.rng);
+        spawnDeadlineBeam(this.projectiles, this.rng, this.pacing?.telegraphScale ?? 1);
         break;
       case 'closing_walls': {
         spawnClosingWalls(
