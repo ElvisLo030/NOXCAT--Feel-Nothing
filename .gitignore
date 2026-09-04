@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-server/
+playwright-report/
+test-results/
+tmp/
+.env
+.DS_Store
+debug.log
+
+# Raw NOXCAT organizer asset pack; keep it outside version control.
+docs/official-assets-20260904/

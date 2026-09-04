@@ -1,0 +1,61 @@
+import { PLAYER_HIT_RADIUS } from '../constants';
+
+export interface PlayerPosition {
+  readonly x: number;
+  readonly y: number;
+}
+
+export const PLAYER_MIN_X = 46;
+export const PLAYER_MAX_X = 494;
+export const PLAYER_MIN_Y = 430;
+export const PLAYER_MAX_Y = 884;
+
+/** Side-spawned hazards stay inside ProjectileSystem's recycle boundary. */
+export const LEFT_WARNING_X = -170;
+export const RIGHT_WARNING_X = 710;
+export const PROJECTILE_RECYCLE_TOP = -300;
+
+/** Fast hazards must remain unable to touch the sampled player for this long. */
+export const MIN_REACTION_MS = 550;
+
+export function clampPlayerPosition(position: PlayerPosition | undefined): PlayerPosition | undefined {
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return undefined;
+  return {
+    x: clamp(position.x, PLAYER_MIN_X, PLAYER_MAX_X),
+    y: clamp(position.y, PLAYER_MIN_Y, PLAYER_MAX_Y),
+  };
+}
+
+export function minimumReactionDistance(speed: number, projectileRadius: number): number {
+  return Math.max(0, speed) * (MIN_REACTION_MS / 1000)
+    + PLAYER_HIT_RADIUS
+    + Math.max(0, projectileRadius);
+}
+
+export function hasMinimumReactionDistance(
+  spawn: PlayerPosition,
+  player: PlayerPosition,
+  speed: number,
+  projectileRadius: number,
+): boolean {
+  return Math.hypot(spawn.x - player.x, spawn.y - player.y)
+    >= minimumReactionDistance(speed, projectileRadius);
+}
+
+export function moveTowards(current: number, target: number, maximumDelta: number): number {
+  const delta = clamp(target - current, -Math.abs(maximumDelta), Math.abs(maximumDelta));
+  return current + delta;
+}
+
+export function evenlySpaced(minimum: number, maximum: number, count: number): number[] {
+  if (count <= 0) return [];
+  if (count === 1) return [(minimum + maximum) / 2];
+  return Array.from(
+    { length: count },
+    (_, index) => minimum + ((maximum - minimum) * index) / (count - 1),
+  );
+}
+
+export function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}

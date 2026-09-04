@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 184" role="img" aria-label="Flat NOXCAT bun-shaped game-character body">
+  <!--
+    Game-character redraw based on the proportions of the supplied official
+    NOXCAT logo. The near-square silhouette, forward-clustered ears and long
+    horizontal base are kept intentionally explicit. The official-green eyes
+    and forehead goggles remain a separate flat runtime layer so the body can
+    deform without blurring the character's identifying face details.
+  -->
+  <path
+    d="M32 176
+       C21 176 15 172 11 164
+       C6 154 6 139 7 124
+       C7 108 12 92 22 76
+       C18 63 14 44 15 33
+       C16 26 20 24 27 27
+       C38 31 47 38 55 45
+       C61 49 65 52 69 53
+       C73 49 76 46 79 43
+       C79 30 78 14 82 9
+       C85 5 89 7 95 12
+       C104 21 114 36 124 51
+       C126 55 128 58 131 60
+       C154 65 174 78 186 96
+       C194 108 197 122 196 138
+       C196 154 189 166 178 172
+       C174 176 168 176 160 176
+       L32 176Z"
+    fill="#101820"
+  />
+</svg>

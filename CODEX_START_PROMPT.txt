@@ -1,0 +1,1 @@
+完整閱讀根目錄 AGENTS.md，將你自己視為本專案的 lead engineer。從空專案開始實作，先完成 Gate 1 的可玩垂直切片並實際執行，再依序完成後續 Gate。不要只建立檔案骨架；每個 Gate 都要通過 typecheck、測試與 production build。官方 NOXCAT 素材若尚未放入，先使用隔離的 placeholder renderer，但所有資產引用必須經過 AssetRegistry，方便之後直接替換。除非遇到真正無法由程式合理決定的官方授權問題，否則不要停下來詢問。
