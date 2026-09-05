@@ -20,6 +20,10 @@ import {
   GAME_WIDTH,
   MAX_FOLLOW_SPEED,
   PLAYER_HIT_RADIUS,
+  PLAYER_MIN_X,
+  PLAYER_MAX_X,
+  PLAYER_MIN_Y,
+  PLAYER_MAX_Y,
   POSITION_DAMPING,
   POSITION_STIFFNESS,
 } from '../constants';
@@ -121,9 +125,9 @@ export class Noxcat extends Phaser.GameObjects.Container {
   mode: NoxcatMode = 'follow';
 
   constructor(scene: Phaser.Scene, x = GAME_WIDTH / 2, y = GAME_HEIGHT * 0.77) {
-    super(scene, x, y);
+    super(scene, Phaser.Math.Clamp(x, PLAYER_MIN_X, PLAYER_MAX_X), Phaser.Math.Clamp(y, PLAYER_MIN_Y, PLAYER_MAX_Y));
     scene.add.existing(this);
-    this.target.set(x, y);
+    this.target.set(this.x, this.y);
 
     this.shadow = scene.add.ellipse(0, 72, 122, 10, 0x000000, 0.5);
     this.bodyGlowLayers = [
@@ -263,8 +267,8 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   setPointerTarget(x: number, y: number): void {
     if (this.mode !== 'follow') return;
-    const nextX = Phaser.Math.Clamp(x, 46, GAME_WIDTH - 46);
-    const nextY = Phaser.Math.Clamp(y - FINGER_OFFSET_Y, 430, GAME_HEIGHT - 76);
+    const nextX = Phaser.Math.Clamp(x, PLAYER_MIN_X, PLAYER_MAX_X);
+    const nextY = Phaser.Math.Clamp(y - FINGER_OFFSET_Y, PLAYER_MIN_Y, PLAYER_MAX_Y);
     const pointerDx = nextX - this.target.x;
     const pointerDy = nextY - this.target.y;
     const pointerTravel = Math.hypot(pointerDx, pointerDy);
@@ -283,8 +287,8 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   nudgeTarget(dx: number, dy: number, dt: number): void {
     if (this.mode !== 'follow') return;
-    this.target.x = Phaser.Math.Clamp(this.target.x + dx * 510 * dt, 46, GAME_WIDTH - 46);
-    this.target.y = Phaser.Math.Clamp(this.target.y + dy * 510 * dt, 430, GAME_HEIGHT - 76);
+    this.target.x = Phaser.Math.Clamp(this.target.x + dx * 510 * dt, PLAYER_MIN_X, PLAYER_MAX_X);
+    this.target.y = Phaser.Math.Clamp(this.target.y + dy * 510 * dt, PLAYER_MIN_Y, PLAYER_MAX_Y);
   }
 
   beginAim(): void {
@@ -365,11 +369,14 @@ export class Noxcat extends Phaser.GameObjects.Container {
   startReturn(targetX: number, targetY: number): void {
     this.mode = 'returning';
     this.clearLaunchEffects();
-    this.target.set(targetX, targetY);
+    this.target.set(
+      Phaser.Math.Clamp(targetX, PLAYER_MIN_X, PLAYER_MAX_X),
+      Phaser.Math.Clamp(targetY, PLAYER_MIN_Y, PLAYER_MAX_Y),
+    );
     const bendSide = Math.sign(this.launchVelocity.x) || this.lastDirection || 1;
     this.returnArc = createReturnArc(
       { x: this.x, y: this.y },
-      { x: targetX, y: targetY },
+      { x: this.target.x, y: this.target.y },
       bendSide,
     );
     this.returnElapsed = 0;
@@ -530,8 +537,8 @@ export class Noxcat extends Phaser.GameObjects.Container {
       dt,
     );
     if (this.velocity.length() > MAX_FOLLOW_SPEED) this.velocity.setLength(MAX_FOLLOW_SPEED);
-    const clampedX = Phaser.Math.Clamp(this.x, 46, GAME_WIDTH - 46);
-    const clampedY = Phaser.Math.Clamp(this.y, 430, GAME_HEIGHT - 76);
+    const clampedX = Phaser.Math.Clamp(this.x, PLAYER_MIN_X, PLAYER_MAX_X);
+    const clampedY = Phaser.Math.Clamp(this.y, PLAYER_MIN_Y, PLAYER_MAX_Y);
     if (clampedX !== this.x) this.velocity.x = 0;
     if (clampedY !== this.y) this.velocity.y = 0;
     this.x = clampedX;
