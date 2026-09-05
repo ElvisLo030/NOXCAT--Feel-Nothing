@@ -2,7 +2,9 @@
 
 > **面對煩惱 Feel Nothing; NOXCAT 讓你 Do Everything**
 
-![NOXCAT: FEEL NOTHING 手機戰鬥畫面](screenshots/battle-full-viewport-mobile.png)
+<p align="center">
+  <img src="screenshots/battle-full-viewport-mobile.png" alt="NOXCAT: FEEL NOTHING 手機戰鬥畫面" width="280" />
+</p>
 
 ## 問題與目標
 
@@ -142,8 +144,8 @@ Production 必須使用 HTTPS，相機 API 才能在非 localhost 環境運作�
 - 評選影片：**【待填：YouTube／雲端影片網址】**
 
 | 開始頁 | 戰鬥畫面 | 結果頁 |
-| --- | --- | --- |
-| ![開始頁](screenshots/start-mobile.png) | ![戰鬥畫面](screenshots/battle-full-viewport-mobile.png) | ![結果頁](screenshots/result-mobile.png) |
+| :---: | :---: | :---: |
+| <img src="screenshots/start-mobile.png" alt="開始頁" width="180" /> | <img src="screenshots/battle-full-viewport-mobile.png" alt="戰鬥畫面" width="180" /> | <img src="screenshots/result-mobile.png" alt="結果頁" width="180" /> |
 
 ## 限制與未來工作
 
