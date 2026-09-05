@@ -13,6 +13,7 @@ export class Hud {
   private readonly energyBoostFx: Phaser.GameObjects.Graphics;
   private readonly energyLabel: Phaser.GameObjects.Text;
   private readonly energyBoostTag: Phaser.GameObjects.Text;
+  private readonly energyFullLabel: Phaser.GameObjects.Text;
   private readonly neutralLabel: Phaser.GameObjects.Text;
   private readonly timer: Phaser.GameObjects.Text;
   private readonly toast: Phaser.GameObjects.Text;
@@ -33,6 +34,7 @@ export class Hud {
   private boostTime = 0;
   private boostReduced = false;
   private lastDrawnIntensity = -1;
+  private lastFullState = false;
 
   constructor(scene: Phaser.Scene, bossName: string) {
     this.hearts = scene.add.text(25, 24, '♥ ♥ ♥', {
@@ -65,6 +67,12 @@ export class Hud {
       fontStyle: '900',
       color: BOOST_PALETTE_CSS.cyan
     }).setDepth(101).setAlpha(0);
+    this.energyFullLabel = scene.add.text(182, 916.5, 'FULL', {
+      fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
+      fontSize: '14px',
+      fontStyle: '900',
+      color: '#071008'
+    }).setOrigin(0.5).setDepth(103).setAlpha(0);
     this.neutralLabel = scene.add.text(514, 907, 'NEUTRAL --', {
       fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
       fontSize: '15px',
@@ -105,7 +113,7 @@ export class Hud {
   update(snapshot: GameSessionSnapshot, neutral: number | null, boostActive?: boolean, deltaMs?: number): void {
     if (typeof boostActive === 'boolean') this.boostTarget = boostActive;
     const dt = deltaMs != null && Number.isFinite(deltaMs) ? Math.max(0, Math.min(deltaMs, 50)) : 16;
-    this.boostTime += dt * (this.boostTarget ? 1 : 0.55);
+    this.boostTime += dt;
     const target = this.boostTarget ? 1 : 0;
     const k = this.boostTarget ? 7.5 : 5.2;
     const lerp = 1 - Math.exp(-k * (dt / 1000));
@@ -139,14 +147,19 @@ export class Hud {
     const energyRatio = snapshot.energy / ENERGY_MAX;
     const energyPixels = Math.round(energyRatio * 302);
     const intensityQuant = Math.round(this.boostIntensity * 20);
-    const needsBarRedraw = energyPixels !== this.lastEnergyPixels || intensityQuant !== this.lastDrawnIntensity;
+    const isFull = energyRatio >= 0.999;
+    const needsBarRedraw = isFull || energyPixels !== this.lastEnergyPixels || intensityQuant !== this.lastDrawnIntensity || isFull !== this.lastFullState;
     if (needsBarRedraw) {
       this.energyRatio = energyRatio;
       this.lastEnergyPixels = energyPixels;
       this.lastDrawnIntensity = intensityQuant;
+      this.lastFullState = isFull;
       this.drawEnergyBar(energyRatio);
     }
-    if (this.boostIntensity > 0.015) {
+    if (isFull) {
+      this.drawFullGlow(energyRatio);
+      this.drawFullFx(energyRatio);
+    } else if (this.boostIntensity > 0.015) {
       this.drawBoostGlow(energyRatio);
       this.drawBoostFx(energyRatio);
     } else {
@@ -154,20 +167,22 @@ export class Hud {
       this.energyBoostFx.clear();
     }
     this.updateBoostLabels();
-
-    const bossBarNeedsRefresh = false;
-    void bossBarNeedsRefresh;
+    this.updateFullLabel(isFull);
   }
 
   tick(deltaMs: number): void {
     const dt = Math.max(0, Math.min(deltaMs, 50));
-    this.boostTime += dt * (this.boostTarget ? 1 : 0.55);
+    this.boostTime += dt;
     const target = this.boostTarget ? 1 : 0;
     const k = this.boostTarget ? 7.5 : 5.2;
     const lerp = 1 - Math.exp(-k * (dt / 1000));
     this.boostIntensity += (target - this.boostIntensity) * lerp;
     this.boostIntensity = Math.max(0, Math.min(1, this.boostIntensity));
-    if (this.boostIntensity > 0.015) {
+    const isFull = this.energyRatio >= 0.999;
+    if (isFull) {
+      this.drawFullGlow(this.energyRatio);
+      this.drawFullFx(this.energyRatio);
+    } else if (this.boostIntensity > 0.015) {
       this.drawBoostGlow(this.energyRatio);
       this.drawBoostFx(this.energyRatio);
     } else {
@@ -175,8 +190,11 @@ export class Hud {
       this.energyBoostFx.clear();
     }
     this.updateBoostLabels();
-    if (Math.round(this.boostIntensity * 20) !== this.lastDrawnIntensity) {
-      this.lastDrawnIntensity = Math.round(this.boostIntensity * 20);
+    this.updateFullLabel(isFull);
+    const intensityQuant = Math.round(this.boostIntensity * 20);
+    if (isFull || intensityQuant !== this.lastDrawnIntensity) {
+      this.lastDrawnIntensity = intensityQuant;
+      this.lastFullState = isFull;
       this.drawEnergyBar(this.energyRatio);
     }
   }
@@ -195,15 +213,21 @@ export class Hud {
     this.energyBarX = left + 25;
     this.energyBarY = bottom - 59;
     this.energyBoostTag.setPosition(left + 25, bottom - 102);
+    this.energyFullLabel.setPosition(left + 25 + 157, bottom - 59 + 15.5);
     this.neutralLabel.setPosition(right - 26, bottom - 53);
     this.stateLabel.setPosition(view.centerX, bottom - 114);
     this.toast.setPosition(view.centerX, view.centerY + 40);
     this.drawBossBar(this.bossRatio);
     this.drawEnergyBar(this.energyRatio);
-    if (this.boostIntensity > 0.015) {
+    const isFull = this.energyRatio >= 0.999;
+    if (isFull) {
+      this.drawFullGlow(this.energyRatio);
+      this.drawFullFx(this.energyRatio);
+    } else if (this.boostIntensity > 0.015) {
       this.drawBoostGlow(this.energyRatio);
       this.drawBoostFx(this.energyRatio);
     }
+    this.updateFullLabel(isFull);
   }
 
   setStateMessage(message: string, danger = false): void {
@@ -248,15 +272,36 @@ export class Hud {
     const y = this.energyBarY;
     const width = 314;
     const intensity = this.boostIntensity;
+    const isFull = ratio >= 0.999;
     this.energyBar.clear();
     this.energyBar.fillStyle(0x0a0c0a, 0.95).fillRoundedRect(x, y, width, 31, 16);
-    const borderColor = intensity > 0.5 ? BOOST_PALETTE.cyan : intensity > 0.12 ? BOOST_PALETTE.blue : PALETTE.green;
-    const borderAlpha = intensity > 0.01 ? 0.85 + 0.15 * intensity : 1;
-    const borderWidth = intensity > 0.35 ? 2.5 : 2;
-    this.energyBar.lineStyle(borderWidth, borderColor, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
+    if (isFull) {
+      const pulse = 0.88 + 0.12 * Math.sin(this.boostTime * 0.011);
+      const borderAlpha = 0.95 * pulse;
+      this.energyBar.lineStyle(2.5, PALETTE.green, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
+    } else {
+      const borderColor = intensity > 0.5 ? BOOST_PALETTE.cyan : intensity > 0.12 ? BOOST_PALETTE.blue : PALETTE.green;
+      const borderAlpha = intensity > 0.01 ? 0.85 + 0.15 * intensity : 1;
+      const borderWidth = intensity > 0.35 ? 2.5 : 2;
+      this.energyBar.lineStyle(borderWidth, borderColor, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
+    }
     if (ratio > 0) {
       const fillW = Math.max(8, (width - 12) * ratio);
-      if (intensity > 0.015) {
+      if (isFull) {
+        this.energyBar.fillStyle(PALETTE.green, 1).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
+        const highlightAlpha = 0.42 + 0.18 * Math.sin(this.boostTime * 0.009);
+        this.energyBar.fillStyle(0xffffff, highlightAlpha * 0.18).fillRoundedRect(x + 6, y + 7, fillW, 8, 5);
+        this.energyBar.fillStyle(0xeaffc2, 0.22 + 0.12 * Math.sin(this.boostTime * 0.013)).fillRoundedRect(x + 6, y + 7, fillW, 2.8, 1.5);
+        const shimmerW = 72;
+        const shimmerOffset = (this.boostTime * 0.22) % (fillW + shimmerW + 60) - shimmerW;
+        const sx = x + 6 + shimmerOffset;
+        const shimmerAlpha = 0.19;
+        this.energyBar.fillStyle(0xffffff, shimmerAlpha).fillRoundedRect(sx, y + 6, shimmerW, 19, 10);
+        const shimmer2W = 28;
+        const shimmer2Offset = (this.boostTime * 0.18 + 260) % (fillW + shimmer2W + 80) - shimmer2W;
+        const sx2 = x + 6 + shimmer2Offset;
+        this.energyBar.fillStyle(0xffffff, 0.11).fillRoundedRect(sx2, y + 6, shimmer2W, 19, 10);
+      } else if (intensity > 0.015) {
         const glowAlpha = 0.95;
         this.energyBar.fillStyle(BOOST_PALETTE.blue, glowAlpha).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
         const highlightH = 9;
@@ -271,13 +316,15 @@ export class Hud {
         this.energyBar.fillStyle(PALETTE.green, 1).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
       }
     }
-    const labelBoost = intensity > 0.22;
-    this.energyLabel.setColor(ratio >= 1 ? PALETTE_CSS.white : labelBoost ? BOOST_PALETTE_CSS.cyan : PALETTE_CSS.green);
-    if (labelBoost) {
+    const isBoostLabel = !isFull && intensity > 0.22;
+    if (isFull) {
+      this.energyLabel.setColor(PALETTE_CSS.white).setScale(1);
+    } else if (isBoostLabel) {
+      this.energyLabel.setColor(BOOST_PALETTE_CSS.cyan);
       const pulse = 1 + 0.035 * Math.sin(this.boostTime * 0.012);
       this.energyLabel.setScale(pulse);
     } else {
-      this.energyLabel.setScale(1);
+      this.energyLabel.setColor(ratio >= 1 ? PALETTE_CSS.white : PALETTE_CSS.green).setScale(1);
     }
   }
 
@@ -301,6 +348,27 @@ export class Hud {
     const flicker = Math.sin(this.boostTime * 0.032) > 0.65 ? 1 : 0;
     if (flicker && intensity > 0.55) {
       this.energyBoostGlow.lineStyle(1.2, BOOST_PALETTE.spark, 0.55 * intensity).strokeRoundedRect(x - 1, y - 1, width + 2, 33, 17);
+    }
+  }
+
+  private drawFullGlow(ratio: number): void {
+    const x = this.energyBarX;
+    const y = this.energyBarY;
+    const width = 314;
+    this.energyBoostGlow.clear();
+    const pulse = 0.78 + 0.22 * Math.sin(this.boostTime * 0.008);
+    const outerAlpha = 0.14 * pulse;
+    const strokeAlpha = 0.38 * pulse;
+    this.energyBoostGlow.fillStyle(PALETTE.green, outerAlpha).fillRoundedRect(x - 5, y - 5, width + 10, 41, 19);
+    this.energyBoostGlow.lineStyle(3.2, PALETTE.green, strokeAlpha).strokeRoundedRect(x - 3, y - 3, width + 6, 37, 18);
+    if (ratio > 0.02) {
+      const fillW = (width - 12) * ratio;
+      const sparkleAlpha = 0.4 * (0.7 + 0.3 * Math.sin(this.boostTime * 0.016));
+      this.energyBoostGlow.fillStyle(0xffffff, sparkleAlpha * 0.1).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
+    }
+    const flicker = Math.sin(this.boostTime * 0.024) > 0.72 ? 1 : 0;
+    if (flicker) {
+      this.energyBoostGlow.lineStyle(1.1, 0xffffff, 0.42).strokeRoundedRect(x - 1, y - 1, width + 2, 33, 17);
     }
   }
 
@@ -394,9 +462,74 @@ export class Hud {
     }
   }
 
+  private drawFullFx(ratio: number): void {
+    const x = this.energyBarX;
+    const y = this.energyBarY;
+    const width = 314;
+    this.energyBoostFx.clear();
+    if (ratio <= 0.001) return;
+    const fillW = (width - 12) * ratio;
+    const left = x + 6;
+    const top = y + 6;
+    const height = 19;
+    const centerY = top + height / 2;
+    const sparkleCount = this.boostReduced ? 6 : 10;
+    for (let i = 0; i < sparkleCount; i += 1) {
+      const progress = (this.boostTime * 0.09 + i * 47) % fillW;
+      const px = left + progress;
+      const wobble = Math.sin(this.boostTime * 0.011 + i * 1.9) * 5.5;
+      const py = centerY + wobble * 0.35;
+      const clampedY = Math.max(top + 4, Math.min(top + height - 4, py));
+      const phase = (this.boostTime * 0.014 + i * 0.8) % (Math.PI * 2);
+      const twinkle = 0.55 + 0.45 * Math.sin(phase);
+      if (twinkle < 0.22) continue;
+      const size = i % 3 === 0 ? 2.6 : i % 3 === 1 ? 1.8 : 1.2;
+      const alpha = twinkle * 0.92;
+      const tailLen = 8 + (i % 3) * 3;
+      const tailX = px - tailLen;
+      const tailAlpha = alpha * 0.18;
+      if (tailX < left + fillW && px > left) {
+        const tx0 = Math.max(tailX, left);
+        const tx1 = Math.min(px, left + fillW);
+        this.energyBoostFx.lineStyle(1.6, 0xffffff, tailAlpha);
+        this.energyBoostFx.lineBetween(tx0, clampedY, tx1, clampedY);
+      }
+      this.energyBoostFx.fillStyle(0xffffff, alpha).fillCircle(px, clampedY, size);
+      this.energyBoostFx.fillStyle(0xeaffc2, alpha * 0.85).fillCircle(px, clampedY, size * 0.55);
+      if (i % 3 === 0 && twinkle > 0.78) {
+        this.energyBoostFx.lineStyle(1, 0xffffff, alpha * 0.9);
+        const s = size + 3;
+        this.energyBoostFx.lineBetween(px - s, clampedY, px + s, clampedY);
+        this.energyBoostFx.lineBetween(px, clampedY - s, px, clampedY + s);
+      }
+    }
+    const streakW = 44;
+    const streakOffset = (this.boostTime * 0.19) % (fillW + streakW + 70) - streakW;
+    const sx = left + streakOffset;
+    if (sx + streakW > left && sx < left + fillW) {
+      const cx = Math.max(sx, left);
+      const cw = Math.min(sx + streakW, left + fillW) - cx;
+      if (cw > 4) {
+        this.energyBoostFx.fillStyle(0xffffff, 0.13).fillRoundedRect(cx, top + 2, cw, height - 4, 4);
+        this.energyBoostFx.fillStyle(0xffffff, 0.07).fillRoundedRect(cx + cw * 0.3, top + 3, cw * 0.45, 3, 1.5);
+      }
+    }
+    for (let k = 0; k < 2; k += 1) {
+      const base = (this.boostTime * 0.007 + k * 2.1) % (Math.PI * 2);
+      const pulse = 0.6 + 0.4 * Math.sin(base);
+      const px = left + fillW * (0.22 + 0.56 * (0.5 + 0.5 * Math.sin(this.boostTime * 0.005 + k)));
+      const py = centerY + Math.sin(this.boostTime * 0.009 + k) * 2;
+      this.energyBoostFx.fillStyle(0xffffff, 0.52 * pulse).fillCircle(px, py, 1.1);
+      this.energyBoostFx.fillStyle(0xffffff, 0.28 * pulse).fillCircle(px, py, 2.4);
+    }
+  }
+
   private updateBoostLabels(): void {
     const intensity = this.boostIntensity;
-    if (intensity > 0.04) {
+    const isFull = this.energyRatio >= 0.999;
+    if (isFull) {
+      this.energyBoostTag.setAlpha(0);
+    } else if (intensity > 0.04) {
       const tagAlpha = Math.min(1, (intensity - 0.04) / 0.36);
       const tagPulse = 0.88 + 0.12 * Math.sin(this.boostTime * 0.009);
       this.energyBoostTag.setAlpha(tagAlpha * tagPulse);
@@ -406,6 +539,10 @@ export class Hud {
       if (flicker) this.energyBoostTag.setColor(BOOST_PALETTE_CSS.spark);
     } else {
       this.energyBoostTag.setAlpha(0);
+    }
+    if (isFull) {
+      this.neutralLabel.setColor(PALETTE_CSS.green).setScale(1);
+      return;
     }
     if (intensity > 0.28) {
       const neutralPulse = 1 + 0.045 * Math.sin(this.boostTime * 0.013);
@@ -426,6 +563,18 @@ export class Hud {
     } else {
       this.neutralLabel.setColor(PALETTE_CSS.green);
       this.neutralLabel.setScale(1);
+    }
+  }
+
+  private updateFullLabel(isFull: boolean): void {
+    if (isFull) {
+      const pulse = 1 + 0.045 * Math.sin(this.boostTime * 0.015);
+      const alphaPulse = 0.92 + 0.08 * Math.sin(this.boostTime * 0.012);
+      this.energyFullLabel.setAlpha(alphaPulse).setScale(pulse);
+      const flicker = Math.sin(this.boostTime * 0.032) > 0.88;
+      if (flicker) this.energyFullLabel.setScale(pulse * 1.06);
+    } else {
+      this.energyFullLabel.setAlpha(0).setScale(1);
     }
   }
 }
