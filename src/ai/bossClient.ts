@@ -7,7 +7,7 @@ import {
 } from './bossSchema.js';
 import { createFallbackBoss, DEFAULT_ANNOYANCE } from './fallbackBoss.js';
 
-export const BOSS_API_TIMEOUT_MS = 6_000;
+export const BOSS_API_TIMEOUT_MS = 10_000;
 export { DEFAULT_ANNOYANCE } from './fallbackBoss.js';
 
 export type BossSource = 'ai' | 'fallback';
