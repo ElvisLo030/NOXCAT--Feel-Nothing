@@ -20,7 +20,9 @@ Every push to `master` starts `.github/workflows/ci.yml`:
 
 The server retains the four newest releases. This pull-based CD design is used
 because `10.0.0.11` is a private LAN address that GitHub-hosted runners cannot
-reach. It needs no GitHub secret, inbound port, or self-hosted runner.
+reach. It needs no GitHub secret, inbound port, or self-hosted runner. Repository
+build scripts run as the unprivileged `noxcat-build` account; the finished
+release becomes root-owned and read-only before the production service uses it.
 
 ## Day-to-day use
 

@@ -5,6 +5,8 @@ readonly revision="${1:-}"
 readonly deploy_root='/opt/noxcat'
 readonly releases_dir="${deploy_root}/releases"
 readonly repository='https://github.com/justinlin099/NOXCAT--Feel-Nothing.git'
+readonly build_user='noxcat-build'
+readonly npm_cache='/var/lib/noxcat-build/.npm'
 
 if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
   echo 'Expected one full lowercase Git commit SHA.' >&2
@@ -40,9 +42,13 @@ if [[ ! -d "${release_dir}" ]]; then
     exit 4
   fi
   git -C "${build_dir}" checkout --detach "${revision}"
-  npm --prefix "${build_dir}" ci
-  npm --prefix "${build_dir}" run build
-  npm --prefix "${build_dir}" prune --omit=dev
+  chown -R "${build_user}:${build_user}" "${build_dir}"
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" ci
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" run build
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" prune --omit=dev
   chown -R root:root "${build_dir}"
   chmod -R a+rX,go-w "${build_dir}"
   mv "${build_dir}" "${release_dir}"
