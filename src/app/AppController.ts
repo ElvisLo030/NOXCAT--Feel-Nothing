@@ -145,7 +145,6 @@ export class AppController {
           this.updateLoadingProgress(
             progress.percent,
             progress.completedBatches,
-            progress.message,
           );
         }
       },
@@ -175,7 +174,6 @@ export class AppController {
   private updateLoadingProgress(
     percent: number,
     completedBatches: number,
-    message: string,
   ): void {
     const progressBar = this.root.querySelector<HTMLElement>('.compile-bar');
     const count = this.root.querySelector<HTMLElement>('[data-loading-count]');
