@@ -16,6 +16,20 @@ export const PALETTE_CSS = {
   midGray: '#B2B2B2',
 } as const;
 
+export const BOOST_PALETTE = {
+  blue: 0x3aa8ff,
+  cyan: 0x7af2ff,
+  deep: 0x0e2a4a,
+  spark: 0xe0f7ff,
+} as const;
+
+export const BOOST_PALETTE_CSS = {
+  blue: '#3BA8FF',
+  cyan: '#7AF2FF',
+  deep: '#0E2A4A',
+  spark: '#E0F7FF',
+} as const;
+
 /** 玩法訊號獨立於 IP 配色：紅色標示危險，綠色標示安全與反彈。 */
 export const COMBAT_COLORS = { danger: 0xff5364, safe: PALETTE.green } as const;
 export const COMBAT_CSS = { danger: '#FF5364', safe: PALETTE_CSS.green } as const;
