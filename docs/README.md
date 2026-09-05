@@ -81,7 +81,7 @@ AI 的責任被限制在已實作的遊戲空間內：模型只能選擇 schema 
 | 前端 | TypeScript、Phaser 3.90、Vite 8、純 CSS | 遊戲主循環、手機操作、視覺動畫、HUD 與頁面流程 |
 | 後端 | Node.js 22、Express 5、OpenAI JavaScript SDK | 同源靜態服務、`/api/boss`、模型呼叫、安全限制與 fallback |
 | 測試 | Vitest、Playwright、ESLint、TypeScript strict | 單元測試、手機瀏覽器 E2E、lint、型別與 production build 驗證 |
-| 部署 | GitHub Actions、systemd、HX370 主機 | 通過 CI 後部署、健康檢查及失敗回滾 |
+| 部署 | GitHub Actions、systemd、Ubuntu server | 通過 CI 後部署、健康檢查及失敗回滾 |
 | Sponsor 技術／素材 | NOXCAT 官方 IP 素材（第七賽道） | 角色、Logo、世界觀與「Feel Nothing. Do Everything.」玩法轉譯 |
 
 ## 安裝與執行
