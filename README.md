@@ -164,6 +164,9 @@ PORT=4173 OPENAI_API_KEY=... npm start
 
 不需資料庫、登入、cookie 或跨網域 CORS。
 
+HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方式請見
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+
 ## Progress
 
 - [x] Gate 0：Vite／Express／Phaser 單一服務、以 540×960 為 authored world 並以等比延伸相機填滿 live viewport 的 responsive canvas、production build。

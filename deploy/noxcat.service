@@ -1,0 +1,26 @@
+[Unit]
+Description=NOXCAT Feel Nothing
+Wants=network-online.target ollama.service
+After=network-online.target ollama.service
+
+[Service]
+Type=simple
+User=noxcat
+Group=noxcat
+WorkingDirectory=/opt/noxcat/current
+EnvironmentFile=/etc/noxcat/noxcat.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

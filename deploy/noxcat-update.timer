@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for a CI-verified NOXCAT update
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=noxcat-update.service
+
+[Install]
+WantedBy=timers.target

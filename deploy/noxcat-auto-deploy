@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly repository='https://github.com/justinlin099/NOXCAT--Feel-Nothing.git'
+readonly workflow_api='https://api.github.com/repos/justinlin099/NOXCAT--Feel-Nothing/actions/workflows/ci.yml/runs?branch=master&event=push&status=completed&per_page=20'
+readonly current_revision_file='/opt/noxcat/current-revision'
+
+remote_line="$(git ls-remote "${repository}" refs/heads/master)"
+latest_revision="${remote_line%%[[:space:]]*}"
+if [[ ! "${latest_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'Could not resolve origin/master.' >&2
+  exit 2
+fi
+
+current_revision=''
+if [[ -f "${current_revision_file}" ]]; then
+  current_revision="$(<"${current_revision_file}")"
+fi
+if [[ "${latest_revision}" == "${current_revision}" ]]; then
+  exit 0
+fi
+
+runs_json="$(
+  curl --fail --silent --show-error --max-time 30 \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'User-Agent: noxcat-production-deployer' \
+    "${workflow_api}"
+)"
+
+verified_revision="$(
+  python3 -c '
+import json
+import sys
+
+target = sys.argv[1]
+runs = json.load(sys.stdin).get("workflow_runs", [])
+print(target if any(
+    run.get("head_sha") == target and run.get("conclusion") == "success"
+    for run in runs
+) else "")
+' "${latest_revision}" <<<"${runs_json}"
+)"
+
+if [[ "${verified_revision}" != "${latest_revision}" ]]; then
+  echo "Revision ${latest_revision} has not passed NOXCAT CI yet; leaving production unchanged."
+  exit 0
+fi
+
+exec /usr/local/sbin/noxcat-deploy "${latest_revision}"
