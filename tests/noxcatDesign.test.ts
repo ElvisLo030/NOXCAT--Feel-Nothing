@@ -75,6 +75,18 @@ describe('NOXCAT layered SVG character', () => {
     expect(centres[0]!.y).toBeGreaterThan(centres[1]!.y);
   });
 
+  it('keeps every goggles reference resolvable in standalone and combined SVGs', () => {
+    for (const layer of ['goggles', 'all'] as const) {
+      const svg = noxcatSvg(layer);
+      const ids = [...svg.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const match of svg.matchAll(/(?:href="#|url\(#)([^"\s)]+)/g)) {
+        expect(ids).toContain(match[1]);
+      }
+    }
+    expect(noxcatSvg('goggles')).toMatch(/<defs><path id="body"[^>]+\/><\/defs>/);
+  });
+
   it('registers the preview, eyes and optional goggles in the same viewBox', async () => {
     expect(NOXCAT_OFFICIAL_GREEN).toBe(0x91d500);
     const viewBox = `viewBox="0 0 ${NOXCAT_FACE_TEXTURE.width} ${NOXCAT_FACE_TEXTURE.height}"`;

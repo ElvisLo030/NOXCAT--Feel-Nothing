@@ -9,11 +9,29 @@
     <path id="eye-left" d="M33.659 77.29C31.885 77.563 30.544 78.845 29.593 80.271C26.239 85.303 27.406 92.37 29.051 97.778C30.724 103.275 35.828 113.25 43.035 112.141C51.404 110.853 49.797 96.969 47.805 91.491C45.778 85.917 41.163 76.135 33.659 77.29Z" />
     <path id="eye-right" d="M71.057 64.011C69.022 64.324 67.279 66.05 66.504 67.859C64.149 73.354 64.734 78.862 66.45 84.499C68.123 89.997 73.225 99.971 80.434 98.862C88.734 97.585 87.184 83.658 85.203 78.211C83.18 72.647 78.546 62.859 71.057 64.011Z" />
   </g>
-  <g id="goggles" class="css-goggles" display="none" transform="rotate(-19.55 56 62)">
-    <path d="M24 62H87" fill="none" stroke="#b2b2b2" stroke-width="1.5" />
-    <g fill="#91d500" fill-opacity=".78" stroke="#b2b2b2" stroke-width="1.4">
-      <rect x="26" y="56" width="23" height="12" rx="2" />
-      <rect x="64" y="56" width="23" height="12" rx="2" />
+  <g id="goggles" class="css-goggles" display="none">
+    <defs>
+      <clipPath id="noxcat-goggles-head-clip" clipPathUnits="userSpaceOnUse">
+        <use href="#body" />
+      </clipPath>
+      <path id="noxcat-goggles-left" d="M17 45C22 38 40 36 48 42C54 46 49 57 44 62C38 67 25 67 20 63C15 59 13 51 17 45Z" />
+      <path id="noxcat-goggles-right" d="M64 42C72 36 90 38 96 45C100 51 98 59 93 63C87 67 74 67 68 62C63 57 58 46 64 42Z" />
+    </defs>
+    <!-- The flat headband disappears beside each ear, above the body. -->
+    <g clip-path="url(#noxcat-goggles-head-clip)" fill="#151d16" stroke="#424939" stroke-width="0.8" stroke-linejoin="round">
+      <path d="M16 59Q10 64-4 67L-4 77Q10 73 19 67Z" />
+      <path d="M89 34Q103 35 121 26L124 35Q106 43 90 43Z" />
+    </g>
+    <g transform="translate(-4 0) rotate(-19.55 56 51)">
+      <path d="M49 47Q56 40 63 47" fill="none" stroke="#b2b2b2" stroke-width="3" stroke-linecap="round" />
+      <g fill="#151d16" stroke="#151d16" stroke-width="4.5" stroke-linejoin="round">
+        <use href="#noxcat-goggles-left" />
+        <use href="#noxcat-goggles-right" />
+      </g>
+      <g fill="#66952a" stroke="#b2b2b2" stroke-width="2" stroke-linejoin="round">
+        <use href="#noxcat-goggles-left" />
+        <use href="#noxcat-goggles-right" />
+      </g>
     </g>
   </g>
 </svg>

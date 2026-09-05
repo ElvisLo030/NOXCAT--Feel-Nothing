@@ -62,7 +62,8 @@ export function noxcatSvg(layer: NoxcatSvgLayer = 'all'): string {
     .replace('display="none"', 'display="inline"');
   const content = layer === 'body' ? pathElement('body')
     : layer === 'eyes' ? eyes
-    : layer === 'goggles' ? goggles
+    // The standalone accessory texture needs the shared outline for its strap clip.
+    : layer === 'goggles' ? `<defs>${pathElement('body')}</defs>${goggles}`
     : `${pathElement('body')}${eyes}${goggles}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${NOXCAT_FACE_TEXTURE.width} ${NOXCAT_FACE_TEXTURE.height}" aria-hidden="true">${content}</svg>`;
 }
