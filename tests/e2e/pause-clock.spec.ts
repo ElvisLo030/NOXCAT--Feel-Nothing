@@ -4,7 +4,7 @@ test('touch landscape freezes intro and combat timers until the ready countdown 
   test.skip(testInfo.project.name !== 'mobile-chromium', 'One deterministic coarse-pointer browser covers the Phaser clock integration');
 
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

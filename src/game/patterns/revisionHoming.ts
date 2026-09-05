@@ -1,6 +1,7 @@
 import type { SeededRng } from '../../utils/rng';
 import type { ProjectileConfig } from '../entities/Projectile';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
+import { randomSignedRotationSpeed } from './fairness';
 import {
   createPatternTimeline,
   staggeredSpawnEvents,
@@ -26,7 +27,7 @@ export function planRevisionHoming(
       y: REVISION_WARNING_Y - index * 54,
       vx: (fromLeft ? 1 : -1) * rng.range(105, 145) * speedScale,
       vy: rng.range(130, 180) * speedScale,
-      rotationSpeed: rng.range(-1.8, 1.8),
+      rotationSpeed: randomSignedRotationSpeed(rng, 0.75, 1.65),
       homingMs: 950 + intensity * 160,
       perspectiveTarget: {
         x: fromLeft ? 205 : 335,

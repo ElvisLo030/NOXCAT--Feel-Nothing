@@ -159,35 +159,40 @@ export class BattleScene extends Phaser.Scene {
     this.audio = new AudioSystem();
     this.audio.setEnabled(runtime.soundEnabled);
     this.setupBossChatter();
-    this.director = new AttackDirector(runtime.boss, new SeededRng(runtime.boss.seed), this.projectiles, {
-      scene: this,
-      player: this.noxcat,
-      onPatternChanged: (pattern) => {
-        if (this.debug) this.hud.setStateMessage(pattern.replaceAll('_', ' ').toUpperCase());
+    this.director = new AttackDirector(
+      { attacks: runtime.attackSequence ?? runtime.boss.attacks },
+      new SeededRng(runtime.boss.seed),
+      this.projectiles,
+      {
+        scene: this,
+        player: this.noxcat,
+        onPatternChanged: (pattern) => {
+          if (this.debug) this.hud.setStateMessage(pattern.replaceAll('_', ' ').toUpperCase());
+        },
+        onReturnableTutorial: () => this.hud.flash('↻ 高速撞回去！', 1500),
+        getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
+        onWavePhaseChanged: (phase, _pattern, volley, _safeLane, dangerZones) => {
+          if (phase === 'TELEGRAPH') {
+            this.showDangerZones(dangerZones ?? []);
+            // This label sits over the unlit route, so describe the action rather
+            // than accidentally naming the safe gap as the danger zone.
+            const hasSafeSpot = dangerZones?.some((zone) => zone.kind === 'safe');
+            this.hud.setStateMessage(hasSafeSpot ? '移到光圈' : 'MOVE TO DARK');
+            this.hud.flash(
+              hasSafeSpot ? '避開光帶・跟著箭頭看來向'
+                : volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
+              850,
+            );
+          } else if (phase === 'ACTIVE') {
+            this.fadeDangerZones();
+            this.hud.setStateMessage('DODGE');
+          } else {
+            this.hideDangerZones();
+            this.hud.setStateMessage('CLEAR');
+          }
+        },
       },
-      onReturnableTutorial: () => this.hud.flash('↻ 高速撞回去！', 1500),
-      getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
-      onWavePhaseChanged: (phase, _pattern, volley, _safeLane, dangerZones) => {
-        if (phase === 'TELEGRAPH') {
-          this.showDangerZones(dangerZones ?? []);
-          // This label sits over the unlit route, so describe the action rather
-          // than accidentally naming the safe gap as the danger zone.
-          const hasSafeSpot = dangerZones?.some((zone) => zone.kind === 'safe');
-          this.hud.setStateMessage(hasSafeSpot ? '移到光圈' : 'MOVE TO DARK');
-          this.hud.flash(
-            hasSafeSpot ? '避開光帶・跟著箭頭看來向'
-              : volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
-            850,
-          );
-        } else if (phase === 'ACTIVE') {
-          this.fadeDangerZones();
-          this.hud.setStateMessage('DODGE');
-        } else {
-          this.hideDangerZones();
-          this.hud.setStateMessage('CLEAR');
-        }
-      },
-    });
+    );
 
     this.setupInput();
     this.setupVisibilityHandling();
@@ -374,6 +379,28 @@ export class BattleScene extends Phaser.Scene {
 
   private drawHatchedDangerRect(zone: Extract<DangerZoneHint, { kind: 'rect' }>): void {
     const colour = 0x91d500;
+    if (zone.projection === 'screen') {
+      const right = zone.x + zone.width;
+      const bottom = zone.y + zone.height;
+      const points = [
+        { x: zone.x, y: zone.y },
+        { x: right, y: zone.y },
+        { x: right, y: bottom },
+        { x: zone.x, y: bottom },
+      ];
+      this.waveGuide.fillStyle(colour, 0.075).fillPoints(points, true, true);
+      this.waveGuide.lineStyle(3, colour, 0.78).strokePoints(points, true, true);
+      this.waveGuide.lineStyle(2, colour, 0.3);
+      for (let fraction = 0.1; fraction < 1; fraction += 0.1) {
+        const x = Phaser.Math.Linear(zone.x, right, fraction);
+        this.waveGuide.lineBetween(x, zone.y, x, bottom);
+      }
+      for (const depth of [0.28, 0.56, 0.82]) {
+        const y = Phaser.Math.Linear(zone.y, bottom, depth);
+        this.waveGuide.lineBetween(zone.x, y, right, y);
+      }
+      return;
+    }
     const quad = projectDangerRectToVanishingQuad(zone);
     const points = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
     this.waveGuide.fillStyle(colour, 0.075).fillPoints(points, true, true);
@@ -1084,6 +1111,11 @@ export class BattleScene extends Phaser.Scene {
         this.director.pause();
         this.projectiles.clearDangerous(true);
       },
+      advanceAttackForTest: (): void => {
+        this.director.pause();
+        this.projectiles.clearDangerous(true);
+        this.director.resume(true);
+      },
       toggleHitboxes: (): void => this.debug?.toggleHitboxes()
     };
     const runtime = getBattleRuntime();
@@ -1200,6 +1232,8 @@ export class BattleScene extends Phaser.Scene {
         collisionActive: projectile.collisionActive,
         vx: projectile.vx,
         vy: projectile.vy,
+        rotationSpeed: projectile.rotationSpeed,
+        rollRotation: projectile.rollRotation,
         continuingOffscreen: projectile.isContinuingOffscreen,
       })),
       viewportSnapshot: () => ({ ...this.viewportLayout }),

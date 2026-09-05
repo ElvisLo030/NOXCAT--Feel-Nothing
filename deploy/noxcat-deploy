@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly revision="${1:-}"
+readonly deploy_root='/opt/noxcat'
+readonly releases_dir="${deploy_root}/releases"
+readonly repository='https://github.com/justinlin099/NOXCAT--Feel-Nothing.git'
+readonly build_user='noxcat-build'
+readonly npm_cache='/var/lib/noxcat-build/.npm'
+
+if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'Expected one full lowercase Git commit SHA.' >&2
+  exit 2
+fi
+
+exec 9>/run/lock/noxcat-deploy.lock
+if ! flock -n 9; then
+  echo 'Another NOXCAT deployment is already running.' >&2
+  exit 3
+fi
+
+install -d -m 0755 "${releases_dir}"
+install -d -m 0750 -o "${build_user}" -g "${build_user}" \
+  "$(dirname "${npm_cache}")" "${npm_cache}"
+readonly release_dir="${releases_dir}/${revision}"
+previous_target=''
+if [[ -L "${deploy_root}/current" ]]; then
+  previous_target="$(readlink -f "${deploy_root}/current")"
+fi
+
+if [[ ! -d "${release_dir}" ]]; then
+  build_dir="$(mktemp -d "${releases_dir}/.build-${revision:0:12}-XXXXXX")"
+  cleanup() {
+    if [[ -n "${build_dir:-}" && -d "${build_dir}" ]]; then
+      rm -rf -- "${build_dir}"
+    fi
+  }
+  trap cleanup EXIT
+
+  git clone --filter=blob:none --no-checkout "${repository}" "${build_dir}"
+  git -C "${build_dir}" fetch --depth=1 origin master
+  if ! git -C "${build_dir}" merge-base --is-ancestor "${revision}" origin/master; then
+    echo 'Requested revision is not on origin/master.' >&2
+    exit 4
+  fi
+  git -C "${build_dir}" checkout --detach "${revision}"
+  chown -R "${build_user}:${build_user}" "${build_dir}"
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" ci
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" run build
+  runuser -u "${build_user}" -- \
+    env NPM_CONFIG_CACHE="${npm_cache}" npm --prefix "${build_dir}" prune --omit=dev
+  chown -R root:root "${build_dir}"
+  chmod -R a+rX,go-w "${build_dir}"
+  mv "${build_dir}" "${release_dir}"
+  build_dir=''
+  trap - EXIT
+fi
+
+ln -sfn "${release_dir}" "${deploy_root}/current.next"
+mv -Tf "${deploy_root}/current.next" "${deploy_root}/current"
+systemctl restart noxcat.service
+
+healthy='false'
+for _ in {1..30}; do
+  if curl --fail --silent --max-time 2 http://127.0.0.1:4173/api/health >/dev/null; then
+    healthy='true'
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${healthy}" != 'true' ]]; then
+  echo 'Deployment health check failed; restoring the previous release.' >&2
+  if [[ -n "${previous_target}" && -d "${previous_target}" ]]; then
+    ln -sfn "${previous_target}" "${deploy_root}/current.next"
+    mv -Tf "${deploy_root}/current.next" "${deploy_root}/current"
+    systemctl restart noxcat.service
+  else
+    systemctl stop noxcat.service
+  fi
+  exit 5
+fi
+
+printf '%s\n' "${revision}" > "${deploy_root}/current-revision"
+
+mapfile -t stale_releases < <(
+  find "${releases_dir}" -mindepth 1 -maxdepth 1 -type d -name '[0-9a-f]*' \
+    -printf '%T@ %p\n' | sort -rn | awk 'NR > 4 { print $2 }'
+)
+for stale_release in "${stale_releases[@]}"; do
+  if [[ "${stale_release}" =~ ^/opt/noxcat/releases/[0-9a-f]{40}$ ]] \
+    && [[ "${stale_release}" != "$(readlink -f "${deploy_root}/current")" ]]; then
+    rm -rf -- "${stale_release}"
+  fi
+done
+
+echo "NOXCAT deployed at revision ${revision}."

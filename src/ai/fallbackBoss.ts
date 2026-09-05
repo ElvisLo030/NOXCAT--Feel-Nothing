@@ -12,7 +12,7 @@ export const FALLBACK_BOSS = {
   attacks: [
     { pattern: 'paper_rain', intensity: 1, durationMs: 6_500 },
     { pattern: 'returnable_burst', intensity: 2, durationMs: 7_000 },
-    { pattern: 'comment_crossfire', intensity: 3, durationMs: 7_000 },
+    { pattern: 'top_downpour', intensity: 3, durationMs: 7_000 },
   ],
   battleLines: [
     '這版先叫最終版。',

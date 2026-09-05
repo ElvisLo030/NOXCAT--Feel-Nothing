@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('sustained low FPS reduces only visual effects while collision stays every frame', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'One deterministic runtime integration is sufficient');
 
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
@@ -42,7 +42,7 @@ test('sustained low FPS reduces only visual effects while collision stays every 
 test('mobile active wave keeps responsive frame cadence without projectile trail batches', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'One mobile GPU profile is sufficient');
 
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

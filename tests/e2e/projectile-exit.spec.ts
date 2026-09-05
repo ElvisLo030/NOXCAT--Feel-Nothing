@@ -4,7 +4,7 @@ test('near-plane cards accelerate and recycle independently beyond the viewport'
   test.skip(testInfo.project.name !== 'desktop-chromium', 'One deterministic Phaser integration covers outbound lifecycle');
 
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

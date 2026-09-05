@@ -1,4 +1,4 @@
-import type { BossDNA } from '../ai/bossSchema';
+import type { AttackStep, BossDNA } from '../ai/bossSchema';
 import type { BossSource } from '../ai/bossClient';
 import type { FaceActivitySample } from '../face/neutralScore';
 
@@ -16,6 +16,8 @@ export interface BattleFaceSnapshot {
 
 export interface BattleRuntimeConfig {
   boss: BossDNA;
+  /** Trusted runtime-only sequence; unlike BossDNA it may contain more than three steps. */
+  attackSequence?: readonly AttackStep[];
   source: BossSource;
   annoyance: string;
   soundEnabled: boolean;

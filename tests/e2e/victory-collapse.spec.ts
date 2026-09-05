@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('final hit plays the Boss collapse before revealing the result screen', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'One mobile renderer covers the deterministic victory effect');
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });

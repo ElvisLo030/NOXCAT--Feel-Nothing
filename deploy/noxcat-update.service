@@ -1,0 +1,17 @@
+[Unit]
+Description=Deploy the newest CI-verified NOXCAT revision
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/noxcat-auto-deploy
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/noxcat /run/lock /var/lib/noxcat-build
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

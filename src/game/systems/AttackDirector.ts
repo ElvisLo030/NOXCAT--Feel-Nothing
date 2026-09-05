@@ -1,5 +1,5 @@
 import type Phaser from 'phaser';
-import type { BossDNA, PatternId } from '../../ai/bossSchema';
+import type { AttackStep, PatternId } from '../../ai/bossSchema';
 import type { SeededRng } from '../../utils/rng';
 import type { Noxcat } from '../entities/Noxcat';
 import { PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
@@ -21,6 +21,18 @@ import {
   runReturnableBurst,
 } from '../patterns/returnableBurst';
 import { runRevisionHoming } from '../patterns/revisionHoming';
+import {
+  TOP_DOWNPOUR_SAFE_LANE_HALF_WIDTH,
+  runTopDownpour,
+} from '../patterns/topDownpour';
+import {
+  PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH,
+  runPulseBarrage,
+} from '../patterns/pulseBarrage';
+import {
+  ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH,
+  runAlternatingZipper,
+} from '../patterns/alternatingZipper';
 import {
   clamp,
   clampPlayerPosition,
@@ -51,6 +63,9 @@ export const ATTACK_TELEGRAPH_MS: Readonly<Record<PatternId, number>> = {
   closing_walls: 650,
   revision_homing: 650,
   returnable_burst: 550,
+  top_downpour: 650,
+  pulse_barrage: 650,
+  alternating_zipper: 600,
 };
 
 export const ATTACK_RECOVERY_MS: Readonly<Record<PatternId, number>> = {
@@ -60,6 +75,9 @@ export const ATTACK_RECOVERY_MS: Readonly<Record<PatternId, number>> = {
   closing_walls: 500,
   revision_homing: 440,
   returnable_burst: 380,
+  top_downpour: 400,
+  pulse_barrage: 460,
+  alternating_zipper: 420,
 };
 
 /**
@@ -74,6 +92,9 @@ export const ATTACK_MIN_ACTIVE_MS: Readonly<Record<PatternId, number>> = {
   closing_walls: 1_400,
   revision_homing: 1_500,
   returnable_burst: 2_140,
+  top_downpour: 1_300,
+  pulse_barrage: 2_400,
+  alternating_zipper: 2_800,
 };
 
 export interface AttackDirectorHooks {
@@ -91,6 +112,10 @@ export interface AttackDirectorHooks {
   getPlayerPosition?: () => PlayerPosition;
 }
 
+export interface AttackSequenceConfig {
+  readonly attacks: readonly AttackStep[];
+}
+
 export class AttackDirector {
   private stepIndex = 0;
   private phaseElapsedMs = 0;
@@ -101,13 +126,16 @@ export class AttackDirector {
   private paperSafeLane = 270;
   private commentLayout?: ReturnType<typeof commentCrossfireLayout>;
   private returnableSafeLane = 270;
+  private topDownpourSafeLane = 270;
+  private pulseBarrageSafeLane = 270;
+  private alternatingZipperSafeLane = 270;
   private wallSafeGap = 650;
   private deadlineBeamY = 650;
   private activePattern?: AttackPatternHandle;
   private pacing: PacingScale | null = null;
 
   constructor(
-    private readonly dna: BossDNA,
+    private readonly dna: AttackSequenceConfig,
     private readonly rng: SeededRng,
     private readonly projectiles: ProjectileSystem,
     private readonly hooks: AttackDirectorHooks = {} as AttackDirectorHooks,
@@ -130,6 +158,17 @@ export class AttackDirector {
         return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT };
       case 'returnable_burst':
         return { axis: 'vertical', center: this.returnableSafeLane, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH };
+      case 'top_downpour':
+        return {
+          axis: 'vertical',
+          center: this.topDownpourSafeLane,
+          halfWidth: TOP_DOWNPOUR_SAFE_LANE_HALF_WIDTH,
+          projection: 'screen',
+        };
+      case 'pulse_barrage':
+        return { axis: 'vertical', center: this.pulseBarrageSafeLane, halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH };
+      case 'alternating_zipper':
+        return { axis: 'vertical', center: this.alternatingZipperSafeLane, halfWidth: ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH };
       default:
         return undefined;
     }
@@ -244,6 +283,21 @@ export class AttackDirector {
         : candidate;
     } else if (this.currentPattern === 'returnable_burst') {
       this.returnableSafeLane = clamp(player?.x ?? this.rng.range(150, 390), 70, 470);
+    } else if (this.currentPattern === 'top_downpour') {
+      const candidate = this.rng.range(100, 440);
+      this.topDownpourSafeLane = player
+        ? moveTowards(candidate, clamp(player.x, 100, 440), 64)
+        : candidate;
+    } else if (this.currentPattern === 'pulse_barrage') {
+      const candidate = this.rng.range(100, 440);
+      this.pulseBarrageSafeLane = player
+        ? moveTowards(candidate, clamp(player.x, 100, 440), 58)
+        : candidate;
+    } else if (this.currentPattern === 'alternating_zipper') {
+      const candidate = this.rng.range(100, 440);
+      this.alternatingZipperSafeLane = player
+        ? moveTowards(candidate, clamp(player.x, 100, 440), 58)
+        : candidate;
     } else if (this.currentPattern === 'deadline_beam') {
       this.deadlineBeamY = this.rng.range(PLAYER_MIN_Y + 24, PLAYER_MAX_Y - 24);
     }
@@ -356,6 +410,12 @@ export class AttackDirector {
           },
         );
       }
+      case 'top_downpour':
+        return runTopDownpour(context, this.topDownpourSafeLane);
+      case 'pulse_barrage':
+        return runPulseBarrage(context, this.pulseBarrageSafeLane);
+      case 'alternating_zipper':
+        return runAlternatingZipper(context, this.alternatingZipperSafeLane);
     }
   }
 

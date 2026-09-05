@@ -2,6 +2,38 @@ import { expect, test, type Page } from '@playwright/test';
 import { FALLBACK_BOSS } from '../../src/ai/fallbackBoss';
 import { PLAYER_MIN_Y, PLAYER_MAX_Y, PLAYER_MIN_X, PLAYER_MAX_X } from '../../src/game/constants';
 import { clipLineToBounds } from '../../src/game/systems/LineGeometry';
+import { verticalSafeWedgeBoundsAtY } from '../../src/game/systems/DangerTelegraph';
+
+for (const y of [PLAYER_MIN_Y, 810, PLAYER_MAX_Y]) {
+  test(`pulse barrage leaves the visible safe centre clear at y=${y}`, async ({ page }) => {
+    await page.route('**/api/boss', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ source: 'fallback', boss: {
+        ...FALLBACK_BOSS,
+        seed: 12,
+        attacks: Array.from({ length: 3 }, () => ({
+          pattern: 'pulse_barrage', intensity: 2, durationMs: 6_500,
+        })),
+      } }),
+    }));
+    await page.goto('/?capture=1&demo=off');
+    await page.getByTestId('generate-boss').click();
+    await page.getByTestId('skip-camera').click();
+    await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
+    const lane = await page.evaluate(() => window.__NOXCAT_TEST__!.waveSnapshot().safeLane!);
+    const wedge = verticalSafeWedgeBoundsAtY(lane, y);
+    await moveToBattlePosition(page, (wedge.left + wedge.right) / 2, y);
+    await page.waitForFunction(() => window.__NOXCAT_TEST__!.projectileSnapshot().some((card) => (
+      card.isDamage && card.collisionActive
+    )));
+    await page.waitForFunction(() => {
+      const hook = window.__NOXCAT_TEST__!;
+      return hook.snapshot().lives < 3 || hook.snapshot().state === 'VULNERABLE'
+        || hook.waveSnapshot().phase === 'RECOVERY';
+    });
+    expect(await page.evaluate(() => window.__NOXCAT_TEST__!.snapshot().lives)).toBe(3);
+  });
+}
 
 for (const position of ['safe_left', 'safe_center', 'safe_right', 'danger'] as const) {
   test(`closing walls reach the lower dodge area at ${position}`, async ({ page }) => {
@@ -15,7 +47,7 @@ for (const position of ['safe_left', 'safe_center', 'safe_right', 'danger'] as c
         })),
       } }),
     }));
-    await page.goto('/?capture=1');
+    await page.goto('/?capture=1&demo=off');
     await page.getByTestId('generate-boss').click();
     await page.getByTestId('skip-camera').click();
     await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
@@ -59,7 +91,7 @@ for (const seed of [12, 13, 14]) {
           })),
         } }),
       }));
-      await page.goto('/?capture=1');
+      await page.goto('/?capture=1&demo=off');
       await page.getByTestId('generate-boss').click();
       await page.getByTestId('skip-camera').click();
       await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
@@ -134,7 +166,7 @@ async function moveToBattlePosition(page: Page, x: number, y: number): Promise<v
 test('a wave progresses through a clear recovery before the next pattern', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop Chromium wave timing coverage');
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

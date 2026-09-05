@@ -8,11 +8,13 @@ import {
 } from '../systems/ProjectileExitMotion';
 import {
   BOSS_PROJECTILE_ORIGIN,
-  calculateInboundProjectileTransform,
-  calculateProjectilePerspectiveQuad,
   calculateTunnelDepthPose,
+  createProjectilePerspectiveGridData,
+  createProjectilePerspectiveProjection,
   createTunnelTrajectory,
   PROJECTILE_CONTACT_DEPTH,
+  projectProjectilePerspectiveUv,
+  rotateProjectedSurfacePoint,
   sampleTunnelProjection,
   type TunnelTrajectory,
   type ProjectileKind,
@@ -25,9 +27,27 @@ export type { ProjectileKind } from '../systems/ProjectileDepth';
 // NOXCAT's available dodge corridor on a narrow phone.
 const PROJECTILE_CARD_WIDTH = 40;
 const PROJECTILE_CARD_HEIGHT = 52;
+// Phaser's 2D mesh shader interpolates texture coordinates per triangle. A
+// 4x6 grid keeps the paper artwork visually rigid under a strong keystone
+// without creating per-frame objects or an expensive custom shader.
+const PROJECTILE_GRID_COLUMNS = 4;
+const PROJECTILE_GRID_ROWS = 6;
+const PROJECTILE_GRID = createProjectilePerspectiveGridData(
+  PROJECTILE_CARD_WIDTH,
+  PROJECTILE_CARD_HEIGHT,
+  PROJECTILE_GRID_COLUMNS,
+  PROJECTILE_GRID_ROWS,
+);
 // Closing-wall documents overlap horizontally at the near plane, turning the
 // row into a real barrier across both edge lanes instead of two small cards.
 const WALL_CARD_WIDTH_SCALE = 2.5;
+
+class ProjectilePerspectiveMesh extends Phaser.GameObjects.Mesh {
+  /** Phaser updates Mesh geometry before Scene.update; resync after our step. */
+  syncProjection(): void {
+    super.preUpdate(0, 0);
+  }
+}
 
 export interface ProjectileConfig {
   kind: ProjectileKind;
@@ -79,10 +99,11 @@ export class Projectile extends Phaser.GameObjects.Container {
     { x: 1, y: 1 },
     { x: -1, y: 1 },
   ];
+  private readonly projectedSurfacePoint = { x: 0, y: 0 };
 
   private readonly sprite: Phaser.GameObjects.Image;
   private readonly comment: Phaser.GameObjects.Text;
-  private readonly perspectiveMesh?: Phaser.GameObjects.Mesh;
+  private readonly perspectiveMesh?: ProjectilePerspectiveMesh;
   private readonly depthShadow: Phaser.GameObjects.Ellipse;
   private readonly visualLayer: Phaser.GameObjects.Container;
 
@@ -108,6 +129,11 @@ export class Projectile extends Phaser.GameObjects.Container {
     return this.outboundExitActive;
   }
 
+  /** Screen-space roll applied after the rigid perspective projection. */
+  get rollRotation(): number {
+    return this.spinRotation;
+  }
+
   /** Actual screen-space corners of the rendered document this frame. */
   get collisionPolygon(): readonly Readonly<{ x: number; y: number }>[] {
     return this.collisionPoints;
@@ -129,28 +155,16 @@ export class Projectile extends Phaser.GameObjects.Container {
       padding: { x: 9, y: 6 }
     }).setOrigin(0.5).setVisible(false);
     if (scene.sys.game.renderer.type === Phaser.WEBGL) {
-      this.perspectiveMesh = scene.add.mesh(
+      this.perspectiveMesh = new ProjectilePerspectiveMesh(
+        scene,
         0,
         0,
         AssetRegistry.key('projectile.paper'),
       );
+      scene.add.existing(this.perspectiveMesh);
       this.perspectiveMesh.addVertices(
-        [
-          -PROJECTILE_CARD_WIDTH / 2, PROJECTILE_CARD_HEIGHT / 2,
-          -PROJECTILE_CARD_WIDTH / 2, -PROJECTILE_CARD_HEIGHT / 2,
-          PROJECTILE_CARD_WIDTH / 2, PROJECTILE_CARD_HEIGHT / 2,
-          -PROJECTILE_CARD_WIDTH / 2, -PROJECTILE_CARD_HEIGHT / 2,
-          PROJECTILE_CARD_WIDTH / 2, -PROJECTILE_CARD_HEIGHT / 2,
-          PROJECTILE_CARD_WIDTH / 2, PROJECTILE_CARD_HEIGHT / 2,
-        ],
-        [
-          0, 1,
-          0, 0,
-          1, 1,
-          0, 0,
-          1, 0,
-          1, 1,
-        ],
+        PROJECTILE_GRID.vertices,
+        PROJECTILE_GRID.uvs,
       );
       this.perspectiveMesh.hideCCW = false;
       this.perspectiveMesh.setOrtho(
@@ -210,10 +224,13 @@ export class Projectile extends Phaser.GameObjects.Container {
     this.projectedX = initialProjection.position.x;
     this.projectedY = initialProjection.position.y;
     const initialPose = calculateTunnelDepthPose(this.kind, this.tunnelDepth);
+    const initialVisualScaleY = this.perspectiveMesh
+      ? initialPose.scale
+      : initialPose.scale * initialPose.foreshortening;
     this.visualLayer
       .setPosition(this.projectedX - config.x, this.projectedY - config.y)
       .setRotation(0)
-      .setScale(initialPose.scale, initialPose.scale * initialPose.foreshortening);
+      .setScale(initialPose.scale, initialVisualScaleY);
     this.sprite.setVisible(!this.perspectiveMesh && config.kind !== 'comment');
     this.sprite
       .setTexture(AssetRegistry.key(this.reflectable ? 'projectile.returnable' : 'projectile.paper'))
@@ -250,8 +267,9 @@ export class Projectile extends Phaser.GameObjects.Container {
       this.projectedY,
       initialPose.progress,
       initialPose.scale,
-      initialPose.scale * initialPose.foreshortening,
+      initialVisualScaleY,
       true,
+      0,
     );
     return this.setActive(true).setVisible(true);
   }
@@ -354,24 +372,22 @@ export class Projectile extends Phaser.GameObjects.Container {
       this.previousX = collisionWasActive ? positionBeforeStep.x : this.x;
       this.previousY = collisionWasActive ? positionBeforeStep.y : this.y;
     }
-    if (this.friendly) {
-      this.spinRotation += this.rotationSpeed * dt * 0.65;
-    } else {
-      this.spinRotation = 0;
-    }
-    const depthPose = calculateTunnelDepthPose(this.kind, this.tunnelDepth);
-    const projectedDeltaX = projection.position.x - this.projectedX;
-    const projectedDeltaY = projection.position.y - this.projectedY;
-    const projectedSpeed = Math.hypot(projectedDeltaX, projectedDeltaY)
-      / Math.max(deltaSeconds, 1 / 240);
-    const inboundTransform = calculateInboundProjectileTransform(
-      this.tunnelDepth,
-      projectedSpeed,
-      this.rotationSpeed,
+    // Compose transforms in the physically readable order requested by the
+    // art direction: first build the left/right keystone below, then rotate
+    // that complete rigid surface clockwise or counter-clockwise here. The
+    // signed speed is authored by the seeded pattern RNG.
+    const spinScale = this.friendly ? 0.65 : 1;
+    this.spinRotation = Phaser.Math.Angle.Wrap(
+      this.spinRotation + this.rotationSpeed * dt * spinScale,
     );
-    const visualScaleX = depthPose.scale * (this.friendly ? 1 : inboundTransform.scaleX);
-    const visualScaleY = depthPose.scale * depthPose.foreshortening
-      * (this.friendly ? 1 : inboundTransform.scaleY);
+    const depthPose = calculateTunnelDepthPose(this.kind, this.tunnelDepth);
+    // A document is a rigid plane. The projected mesh already supplies all
+    // pitch, yaw and foreshortening. Never add speed-based squash/stretch to a
+    // rigid card; Canvas only keeps the mild depth foreshortening fallback.
+    const visualScaleX = depthPose.scale;
+    const visualScaleY = depthPose.scale * (
+      this.perspectiveMesh ? 1 : depthPose.foreshortening
+    );
     this.visualLayer.setScale(visualScaleX, visualScaleY);
     this.setAlpha(depthPose.alpha * (this.reducedVisualQuality ? 0.88 : 1))
       .setDepth(depthPose.displayDepth);
@@ -379,9 +395,7 @@ export class Projectile extends Phaser.GameObjects.Container {
       projection.position.x - this.x,
       projection.position.y - this.y,
     );
-    // Boss-fired cards remain front-facing: perspective translation plus
-    // non-uniform deformation carry the motion. Reflected cards may spin.
-    this.visualLayer.setRotation(this.friendly ? this.spinRotation : inboundTransform.rotation);
+    this.visualLayer.setRotation(this.spinRotation);
     this.updatePerspectiveSurface(
       projection.position.x,
       projection.position.y,
@@ -389,6 +403,7 @@ export class Projectile extends Phaser.GameObjects.Container {
       visualScaleX,
       visualScaleY,
       !this.friendly,
+      this.spinRotation,
     );
     this.depthShadow
       .setScale(Phaser.Math.Linear(0.55, 1.45, depthPose.progress))
@@ -475,6 +490,7 @@ export class Projectile extends Phaser.GameObjects.Container {
     visualScaleX: number,
     visualScaleY: number,
     warped: boolean,
+    rollRadians: number,
   ): void {
     const sourceWidth = this.kind === 'comment'
       ? Math.max(1, this.comment.width)
@@ -484,8 +500,8 @@ export class Projectile extends Phaser.GameObjects.Container {
       : PROJECTILE_CARD_HEIGHT * (this.kind === 'wall' ? WALL_CARD_SCALE_Y : 1);
     const safeScaleX = Math.max(0.001, Math.abs(visualScaleX));
     const safeScaleY = Math.max(0.001, Math.abs(visualScaleY));
-    const quad = warped && Boolean(this.perspectiveMesh)
-      ? calculateProjectilePerspectiveQuad(
+    const projection = warped && Boolean(this.perspectiveMesh)
+      ? createProjectilePerspectiveProjection(
           { x: projectedX, y: projectedY },
           sourceWidth * safeScaleX,
           sourceHeight * safeScaleY,
@@ -493,48 +509,55 @@ export class Projectile extends Phaser.GameObjects.Container {
           this.tunnelTrajectory.nearPoint,
           this.tunnelTrajectory.origin,
         )
+      : undefined;
+    const quad = projection
+      ? {
+          topLeft: projectProjectilePerspectiveUv(projection, 0, 0),
+          topRight: projectProjectilePerspectiveUv(projection, 1, 0),
+          bottomRight: projectProjectilePerspectiveUv(projection, 1, 1),
+          bottomLeft: projectProjectilePerspectiveUv(projection, 0, 1),
+        }
       : {
           topLeft: { x: -sourceWidth * safeScaleX / 2, y: -sourceHeight * safeScaleY / 2 },
           topRight: { x: sourceWidth * safeScaleX / 2, y: -sourceHeight * safeScaleY / 2 },
           bottomRight: { x: sourceWidth * safeScaleX / 2, y: sourceHeight * safeScaleY / 2 },
           bottomLeft: { x: -sourceWidth * safeScaleX / 2, y: sourceHeight * safeScaleY / 2 },
         };
-    this.collisionPoints[0]!.x = projectedX + quad.topLeft.x;
-    this.collisionPoints[0]!.y = projectedY + quad.topLeft.y;
-    this.collisionPoints[1]!.x = projectedX + quad.topRight.x;
-    this.collisionPoints[1]!.y = projectedY + quad.topRight.y;
-    this.collisionPoints[2]!.x = projectedX + quad.bottomRight.x;
-    this.collisionPoints[2]!.y = projectedY + quad.bottomRight.y;
-    this.collisionPoints[3]!.x = projectedX + quad.bottomLeft.x;
-    this.collisionPoints[3]!.y = projectedY + quad.bottomLeft.y;
+    const corners = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
+    for (let index = 0; index < corners.length; index += 1) {
+      const corner = corners[index];
+      const collisionPoint = this.collisionPoints[index];
+      if (!corner || !collisionPoint) continue;
+      rotateProjectedSurfacePoint(corner, rollRadians, collisionPoint);
+      collisionPoint.x += projectedX;
+      collisionPoint.y += projectedY;
+    }
     if (!this.perspectiveMesh) return;
-    const local = {
-      topLeft: { x: quad.topLeft.x / safeScaleX, y: quad.topLeft.y / safeScaleY },
-      topRight: { x: quad.topRight.x / safeScaleX, y: quad.topRight.y / safeScaleY },
-      bottomRight: { x: quad.bottomRight.x / safeScaleX, y: quad.bottomRight.y / safeScaleY },
-      bottomLeft: { x: quad.bottomLeft.x / safeScaleX, y: quad.bottomLeft.y / safeScaleY },
-    };
-    const positions = [
-      local.bottomLeft,
-      local.topLeft,
-      local.bottomRight,
-      local.topLeft,
-      local.topRight,
-      local.bottomRight,
-    ];
     for (let index = 0; index < this.perspectiveMesh.vertices.length; index += 1) {
-      const point = positions[index];
       const vertex = this.perspectiveMesh.vertices[index];
-      if (!point || !vertex) continue;
-      vertex.x = point.x;
+      if (!vertex) continue;
+      const point = projection
+        ? projectProjectilePerspectiveUv(
+            projection,
+            vertex.u,
+            vertex.v,
+            this.projectedSurfacePoint,
+          )
+        : this.projectedSurfacePoint;
+      if (!projection) {
+        point.x = (vertex.u - 0.5) * sourceWidth * safeScaleX;
+        point.y = (vertex.v - 0.5) * sourceHeight * safeScaleY;
+      }
+      vertex.x = point.x / safeScaleX;
       // Phaser's orthographic Mesh transform flips local Y. Counter-flip the
       // authored screen-space quad so the Boss-facing edge stays the narrow
       // edge and text on the card remains upright.
-      vertex.y = -point.y;
+      vertex.y = -point.y / safeScaleY;
     }
     // Phaser's Mesh cache does not observe direct Vertex.x/y writes. A zero
     // view pan is its cheapest public dirty signal: active meshes transform
     // once, while all inactive pooled meshes can take the cached fast path.
     this.perspectiveMesh.panX(0);
+    this.perspectiveMesh.syncProjection();
   }
 }

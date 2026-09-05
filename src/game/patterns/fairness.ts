@@ -1,3 +1,4 @@
+import type { SeededRng } from '../../utils/rng';
 import { PLAYER_HIT_RADIUS, PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 
 export { PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
@@ -60,6 +61,21 @@ export function evenlySpaced(minimum: number, maximum: number, count: number): n
     { length: count },
     (_, index) => minimum + ((maximum - minimum) * index) / (count - 1),
   );
+}
+
+/** A deterministic, visibly non-zero clockwise/counter-clockwise paper roll. */
+export function randomSignedRotationSpeed(
+  rng: SeededRng,
+  minimumMagnitude: number,
+  maximumMagnitude: number,
+): number {
+  const minimum = Math.max(0, Math.min(minimumMagnitude, maximumMagnitude));
+  const maximum = Math.max(minimum, minimumMagnitude, maximumMagnitude);
+  // One draw carries both sign and magnitude. Existing patterns that already
+  // sampled a signed speed therefore keep the same RNG cadence for layout.
+  const signedSample = rng.range(-1, 1);
+  const magnitude = minimum + (maximum - minimum) * Math.abs(signedSample);
+  return signedSample < 0 ? -magnitude : magnitude;
 }
 
 export function clamp(value: number, minimum: number, maximum: number): number {
