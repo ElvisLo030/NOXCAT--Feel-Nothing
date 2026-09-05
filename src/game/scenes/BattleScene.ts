@@ -1,6 +1,6 @@
 import { clipLineToBounds } from '../systems/LineGeometry';
 import Phaser from 'phaser';
-import { PALETTE, PALETTE_CSS } from '../../theme/palette';
+import { COMBAT_COLORS, PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { GameSession, type GameSessionSnapshot } from '../../state/GameSession';
 import { SeededRng } from '../../utils/rng';
 import { createAttackPool } from '../attackSequence';
@@ -30,6 +30,7 @@ import { BattleState, isTerminalBattleState } from '../events';
 import { getBattleRuntime, type BattleFaceSnapshot } from '../runtime';
 import { AimGuide } from '../ui/AimGuide';
 import { Hud } from '../ui/Hud';
+import { DANGER_INSTRUCTION } from '../ui/attackCues';
 import { AttackDirector, type DangerZoneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import {
@@ -91,6 +92,7 @@ export class BattleScene extends Phaser.Scene {
   private debug?: DebugOverlay;
   private testHook?: NonNullable<Window['__NOXCAT_TEST__']>;
   private waveGuide!: Phaser.GameObjects.Graphics;
+  private lastHomingCueMs = 0;
   private bossSpeech!: Phaser.GameObjects.Text;
   private chatterTimer?: Phaser.Time.TimerEvent;
   private battleLineIndex = 0;
@@ -174,22 +176,20 @@ export class BattleScene extends Phaser.Scene {
           if (this.debug) this.hud.setStateMessage(pattern.replaceAll('_', ' ').toUpperCase());
         },
         onReturnableTutorial: () => this.hud.flash('↻ 高速撞回去！', 1500),
+        onReturnableWindow: () => {
+          this.hideDangerZones();
+          this.hud.setStateMessage('↻ 高速撞回文件');
+        },
+        onDangerZonesChanged: (zones) => this.paintDangerZones(zones),
         getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
-        onWavePhaseChanged: (phase, _pattern, volley, _safeLane, dangerZones) => {
+        onWavePhaseChanged: (phase, _pattern, _volley, _safeLane, dangerZones) => {
           if (phase === 'TELEGRAPH') {
             this.showDangerZones(dangerZones ?? []);
-            // This label sits over the unlit route, so describe the action rather
-            // than accidentally naming the safe gap as the danger zone.
-            const hasSafeSpot = dangerZones?.some((zone) => zone.kind === 'safe');
-            this.hud.setStateMessage(hasSafeSpot ? '移到光圈' : 'MOVE TO DARK');
-            this.hud.flash(
-              hasSafeSpot ? '避開光帶・跟著箭頭看來向'
-                : volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
-              850,
-            );
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
+            this.hud.flash(DANGER_INSTRUCTION, 850, true);
           } else if (phase === 'ACTIVE') {
             this.fadeDangerZones();
-            this.hud.setStateMessage('DODGE');
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
           } else {
             this.hideDangerZones();
             this.hud.setStateMessage('CLEAR');
@@ -236,6 +236,7 @@ export class BattleScene extends Phaser.Scene {
       this.updateNeutral(face, dt);
       this.handleBeamCollisions(noxcatBeforeStep.y, delta);
       this.projectiles.update(dt, this.noxcat, this.combatTimeScale);
+      this.updateHomingCue(delta);
       this.handleProjectileCollisions(noxcatBeforeStep, delta);
       this.collisionUpdateCount += 1;
       if (this.session.state === BattleState.DODGING) {
@@ -367,22 +368,27 @@ export class BattleScene extends Phaser.Scene {
     this.waveGuide.clear().setAlpha(0);
     if (zones.length === 0) return;
 
+    this.paintDangerZones(zones);
+    this.tweens.add({
+      targets: this.waveGuide,
+      alpha: { from: 0.35, to: 1 },
+      duration: 240,
+      ease: 'Sine.Out',
+    });
+  }
+
+  private paintDangerZones(zones: readonly DangerZoneHint[]): void {
+    this.waveGuide.clear();
     for (const zone of zones) {
       if (zone.kind === 'rect') this.drawHatchedDangerRect(zone);
       else if (zone.kind === 'ray') this.drawDirectionalDanger(zone);
       else if (zone.kind === 'safe') this.drawSafeSpot(zone);
       else this.drawTargetDanger(zone.x, zone.y, zone.radius);
     }
-    this.tweens.add({
-      targets: this.waveGuide,
-      alpha: { from: 0.2, to: 1 },
-      duration: 380,
-      ease: 'Sine.Out',
-    });
   }
 
   private drawHatchedDangerRect(zone: Extract<DangerZoneHint, { kind: 'rect' }>): void {
-    const colour = 0x91d500;
+    const colour = COMBAT_COLORS.danger;
     if (zone.projection === 'screen') {
       const right = zone.x + zone.width;
       const bottom = zone.y + zone.height;
@@ -402,6 +408,18 @@ export class BattleScene extends Phaser.Scene {
       for (const depth of [0.28, 0.56, 0.82]) {
         const y = Phaser.Math.Linear(zone.y, bottom, depth);
         this.waveGuide.lineBetween(zone.x, y, right, y);
+      }
+      const cueTop = Math.max(zone.y, DODGE_AREA_TOP + 20);
+      const cueBottom = Math.min(bottom, GAME_HEIGHT - 100);
+      if (cueBottom - cueTop > 24) {
+        const y = (cueTop + cueBottom) / 2;
+        if (this.director.currentPattern === 'closing_walls') {
+          this.drawCueArrow(76, y, 1, 0);
+          this.drawCueArrow(GAME_WIDTH - 76, y, -1, 0);
+        } else if (this.director.currentPattern === 'top_downpour') {
+          const x = (Math.max(20, zone.x) + Math.min(GAME_WIDTH - 20, right)) / 2;
+          for (const offset of [-40, 40]) this.drawCueArrow(x, y + offset, 0, 1);
+        }
       }
       return;
     }
@@ -428,6 +446,24 @@ export class BattleScene extends Phaser.Scene {
       };
       this.waveGuide.lineBetween(left.x, left.y, right.x, right.y);
     }
+    const ray = projectDangerRayHatch(quad, 0.5);
+    const dx = ray.end.x - ray.start.x;
+    const dy = ray.end.y - ray.start.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const depths = this.director.currentPattern === 'pulse_barrage' ? [0.68, 0.8, 0.92] : [0.84];
+    for (const depth of depths) {
+      this.drawCueArrow(ray.start.x + dx * depth, ray.start.y + dy * depth, dx / length, dy / length);
+    }
+  }
+
+  private drawCueArrow(x: number, y: number, dx: number, dy: number): void {
+    this.waveGuide.lineStyle(3, COMBAT_COLORS.danger, 0.9)
+      .lineBetween(x - dx * 12, y - dy * 12, x + dx * 12, y + dy * 12);
+    this.waveGuide.fillStyle(COMBAT_COLORS.danger, 0.95).fillTriangle(
+      x + dx * 17, y + dy * 17,
+      x + dx * 3 - dy * 8, y + dy * 3 + dx * 8,
+      x + dx * 3 + dy * 8, y + dy * 3 - dx * 8,
+    );
   }
 
   private drawDirectionalDanger(zone: Extract<DangerZoneHint, { kind: 'ray' }>): void {
@@ -442,7 +478,7 @@ export class BattleScene extends Phaser.Scene {
     if (!segment) return;
     const { entry: from, exit: to } = segment;
     const length = Math.hypot(to.x - from.x, to.y - from.y);
-    const colour = PALETTE.green;
+    const colour = COMBAT_COLORS.danger;
     const band = [
       { x: from.x - uy * zone.halfWidth, y: from.y + ux * zone.halfWidth },
       { x: to.x - uy * zone.halfWidth, y: to.y + ux * zone.halfWidth },
@@ -488,7 +524,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawTargetDanger(x: number, y: number, radius: number): void {
-    const colour = 0x91d500;
+    const colour = COMBAT_COLORS.danger;
     const cone = projectDangerTargetCone({ kind: 'target', x, y, radius });
     const conePoints = [
       cone.originLeft,
@@ -516,7 +552,7 @@ export class BattleScene extends Phaser.Scene {
       targets: this.waveGuide,
       // Actual projectiles take over as the primary cue during ACTIVE, while a
       // faint hatch preserves the promise made by the telegraph.
-      alpha: 0.12,
+      alpha: this.director.currentPattern === 'closing_walls' ? 0.5 : 0.22,
       duration: 240,
       ease: 'Quad.Out',
     });
@@ -525,6 +561,26 @@ export class BattleScene extends Phaser.Scene {
   private hideDangerZones(): void {
     this.tweens.killTweensOf(this.waveGuide);
     this.waveGuide.clear().setAlpha(0);
+  }
+
+  private updateHomingCue(deltaMs: number): void {
+    if (this.session.state !== BattleState.DODGING || this.director.currentPattern !== 'revision_homing'
+      || this.director.currentPhase !== 'ACTIVE') return;
+    this.lastHomingCueMs += deltaMs;
+    if (this.lastHomingCueMs < 100) return;
+    this.lastHomingCueMs = 0;
+    const cards = this.projectiles.activeProjectiles().filter((card) => card.kind === 'homing' && card.isDamage && !card.friendly);
+    if (cards.length === 0) return;
+    // 只以 10 Hz 更新小型瞄準圈；追蹤停止後圈的位置也固定，讓閃避時機可讀。
+    this.tweens.killTweensOf(this.waveGuide);
+    this.waveGuide.clear().setAlpha(0.8);
+    for (const card of cards) {
+      const { x, y } = card.homingTarget;
+      const radius = card.homingRemainingMs > 0 ? 38 : 30;
+      this.waveGuide.lineStyle(2, COMBAT_COLORS.danger, 0.8).strokeCircle(x, y, radius)
+        .lineBetween(x - 10, y, x + 10, y).lineBetween(x, y - 10, x, y + 10);
+    }
+    this.hud.setStateMessage(DANGER_INSTRUCTION, true);
   }
 
   private showIntro(name: string, line: string, source: 'ai' | 'fallback'): void {

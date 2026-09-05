@@ -38,6 +38,18 @@ export interface ScheduledPatternEvent {
   readonly emit: () => void;
 }
 
+/** 保留尾張文件的接近與離場時間；短波次只壓縮發射間隔，不刪掉尾段。 */
+export function fitEmissionTimes(
+  times: readonly number[],
+  durationMs: number,
+  tailMs: number,
+): number[] {
+  const last = Math.max(0, ...times);
+  const available = Math.max(0, durationMs - tailMs);
+  const scale = last > 0 ? Math.min(1, available / last) : 1;
+  return times.map((time) => Math.round(time * scale));
+}
+
 /**
  * Builds a clock-independent, cancellable timeline. Due-at-zero events fire
  * immediately; later events advance only when AttackDirector advances ACTIVE.

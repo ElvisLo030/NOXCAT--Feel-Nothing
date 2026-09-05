@@ -206,6 +206,7 @@ export function dangerZonesForPattern(
       y: deadlineBeamY - 22,
       width: COMBAT_ARENA.width,
       height: 44,
+      projection: 'screen',
     }];
   }
 

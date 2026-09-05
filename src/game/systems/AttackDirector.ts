@@ -103,6 +103,8 @@ export interface AttackDirectorHooks {
   player: Noxcat;
   onPatternChanged?: (pattern: PatternId) => void;
   onReturnableTutorial?: () => void;
+  onReturnableWindow?: () => void;
+  onDangerZonesChanged?: (zones: readonly DangerZoneHint[]) => void;
   onWavePhaseChanged?: (
     phase: WavePhase,
     pattern: PatternId,
@@ -165,7 +167,7 @@ export class AttackDirector {
         return { axis: 'vertical', center: this.paperSafeLane, halfWidth: PAPER_SAFE_LANE_HALF_WIDTH };
 
       case 'closing_walls':
-        return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT };
+        return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT, projection: 'screen' };
       case 'returnable_burst':
         return { axis: 'vertical', center: this.returnableSafeLane, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH };
       case 'top_downpour':
@@ -340,9 +342,9 @@ export class AttackDirector {
     const isBeam = pattern === 'deadline_beam';
     const telegraphScale = isBeam ? 1 : (this.pacing?.telegraphScale ?? 1);
     const recoveryScale = isBeam ? 1 : (this.pacing?.recoveryScale ?? 1);
-    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * telegraphScale));
+    if (phase === 'TELEGRAPH') return Math.max(500, Math.round(telegraph * telegraphScale));
     if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * recoveryScale));
-    const scaledTelegraph = telegraph * telegraphScale;
+    const scaledTelegraph = Math.max(500, Math.round(telegraph * telegraphScale));
     const scaledRecovery = recovery * recoveryScale;
     return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
   }
@@ -411,7 +413,10 @@ export class AttackDirector {
         return runClosingWalls(
           context,
           this.wallSafeGap,
-          (safeGapY) => { this.wallSafeGap = safeGapY; },
+          (safeGapY) => {
+            this.wallSafeGap = safeGapY;
+            this.hooks.onDangerZonesChanged?.(this.currentDangerZones);
+          },
         );
       }
       case 'revision_homing':
@@ -421,6 +426,7 @@ export class AttackDirector {
           context,
           this.returnableSafeLane,
           () => {
+            this.hooks.onReturnableWindow?.();
             if (this.returnableTutorialShown) return;
             this.returnableTutorialShown = true;
             this.hooks.onReturnableTutorial?.();

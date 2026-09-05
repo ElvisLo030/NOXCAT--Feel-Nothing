@@ -111,7 +111,20 @@ for (const seed of [12, 13, 14]) {
         target = { ...target, x: (path.entry.x + path.exit.x) / 2, y: (path.entry.y + path.exit.y) / 2 };
       }
       await moveToBattlePosition(page, target.x, target.y);
-      await page.waitForFunction(() => window.__NOXCAT_TEST__?.waveSnapshot().phase === 'ACTIVE');
+      await page.waitForFunction(({ rayCount, safeX, safeY }) => {
+        const hook = window.__NOXCAT_TEST__;
+        if (!hook) return false;
+        const wave = hook.waveSnapshot();
+        const comments = hook.projectileSnapshot().filter((card) => card.kind === 'comment');
+        return wave.phase === 'ACTIVE'
+          && wave.safeSpot?.x === safeX
+          && wave.safeSpot.y === safeY
+          && comments.length === rayCount;
+      }, {
+        rayCount: before.rays!.length,
+        safeX: before.spot!.x,
+        safeY: before.spot!.y,
+      }, { timeout: 3_000 });
       const volley = await page.evaluate(() => window.__NOXCAT_TEST__!.projectileSnapshot().filter((card) => card.kind === 'comment'));
       expect(volley.length).toBeGreaterThanOrEqual(2);
       expect(volley.length).toBeLessThanOrEqual(3);
@@ -158,8 +171,10 @@ async function moveToBattlePosition(page: Page, x: number, y: number): Promise<v
   await page.mouse.move(target.x, target.y, { steps: 5 });
   await page.waitForFunction((target) => {
     const cat = window.__NOXCAT_TEST__?.visualSnapshot();
-    return cat != null && Math.hypot(cat.x - target.x, cat.y - target.y) < 1;
-  }, { x, y });
+    // Canvas CSS scaling can quantize the pointer by slightly more than one
+    // logical pixel. Two pixels is still far inside the 18 px safe marker.
+    return cat != null && Math.hypot(cat.x - target.x, cat.y - target.y) < 2;
+  }, { x, y }, { timeout: 3_000 });
   await page.mouse.up();
 }
 

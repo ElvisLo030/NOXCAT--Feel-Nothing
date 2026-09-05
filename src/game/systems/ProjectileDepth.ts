@@ -81,6 +81,16 @@ export interface TunnelProjection {
   readonly collisionActive: boolean;
 }
 
+/** 改變可見瞄準射線但保留原接近時鐘，避免追蹤時深度倒退或突然命中。 */
+export function retargetTunnelTrajectory(
+  trajectory: TunnelTrajectory,
+  target: ProjectileDepthPoint,
+): TunnelTrajectory {
+  const x = (target.x - trajectory.origin.x) / TUNNEL_RADIUS_X;
+  const y = (target.y - trajectory.origin.y) / TUNNEL_RADIUS_Y;
+  return { ...trajectory, nearPoint: target, laneAngle: Math.atan2(y, x), laneRadius: Math.hypot(x, y) };
+}
+
 export const WALL_CARD_SCALE_Y = 1;
 const PROJECTILE_TEXTURE_HEIGHT = 52;
 const FAR_DEPTH_SCALE = 0.13;
