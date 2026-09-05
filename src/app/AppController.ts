@@ -150,7 +150,9 @@ export class AppController {
       },
     );
     if (requestGeneration !== this.generation) return;
-    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 180));
+    // Keep the completed cyber dial on screen long enough to register even
+    // when the local fallback resolves almost instantly.
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 650));
     if (requestGeneration !== this.generation) return;
     this.latestBoss = result;
     if (this.wantsCamera) this.showCameraConsent();
@@ -161,10 +163,19 @@ export class AppController {
     this.root.classList.remove('battle-active');
     this.root.innerHTML = `
       <main class="screen loading-screen" aria-live="polite" aria-busy="true" aria-labelledby="loading-title">
-        <div class="compiler-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <p class="eyebrow">BOSS COMPILER v1.0</p>
         <h2 id="loading-title" tabindex="-1">AI 正在把煩惱<br>編譯成 BOSS…</h2>
-        <div class="compile-bar" role="progressbar" aria-label="AI 對話生成進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+        <div class="compile-ring-shell">
+          <div class="compile-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="compile-ring" role="progressbar" aria-label="AI 對話生成進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span class="compile-ticks" aria-hidden="true"></span>
+            <span class="compile-scanner" aria-hidden="true"></span>
+            <span class="compile-core" aria-hidden="true">
+              <strong data-loading-percent>0%</strong>
+              <small>DNA SYNC</small>
+            </span>
+          </div>
+        </div>
         <p class="compile-count" data-loading-count>0 / 2 批・0%</p>
       </main>
     `;
@@ -175,13 +186,15 @@ export class AppController {
     percent: number,
     completedBatches: number,
   ): void {
-    const progressBar = this.root.querySelector<HTMLElement>('.compile-bar');
+    const progressBar = this.root.querySelector<HTMLElement>('.compile-ring');
     const count = this.root.querySelector<HTMLElement>('[data-loading-count]');
-    if (!progressBar || !count) return;
+    const percentLabel = this.root.querySelector<HTMLElement>('[data-loading-percent]');
+    if (!progressBar || !count || !percentLabel) return;
 
     const safePercent = Math.max(0, Math.min(100, percent));
     progressBar.style.setProperty('--progress', `${safePercent}%`);
     progressBar.setAttribute('aria-valuenow', String(safePercent));
+    setSafeText(percentLabel, `${safePercent}%`);
     setSafeText(count, `${completedBatches} / 2 批・${safePercent}%`);
   }
 

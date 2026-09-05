@@ -57,6 +57,8 @@ test('camera consent and result screens keep focus, statistics, and actions acce
   const loadingTitle = page.getByRole('heading', { name: /AI 正在把煩惱.*編譯成 BOSS/ });
   await expect(loadingTitle).toBeFocused();
   await expect(page.locator('.loading-screen')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByRole('progressbar', { name: 'AI 對話生成進度' })).toBeVisible();
+  await expect(page.locator('.compile-ring-shell')).toBeVisible();
 
   const cameraTitle = page.getByRole('heading', { name: '面無表情模式' });
   await expect(cameraTitle).toBeVisible({ timeout: 5_000 });

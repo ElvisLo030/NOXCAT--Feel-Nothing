@@ -198,13 +198,16 @@ export class BattleScene extends Phaser.Scene {
         getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
         onWavePhaseChanged: (phase, pattern, _volley, _safeLane, dangerZones) => {
           if (phase === 'TELEGRAPH') {
+            this.boss.setExpression('charging');
             this.showDangerZones(dangerZones ?? []);
             this.hud.setStateMessage(DANGER_INSTRUCTION, true);
             this.hud.flash(ATTACK_NAMES[pattern], 850, true);
           } else if (phase === 'ACTIVE') {
+            this.boss.setExpression('attacking');
             this.fadeDangerZones();
             this.hud.setStateMessage(DANGER_INSTRUCTION, true);
           } else {
+            this.boss.setExpression('recovering');
             this.hideDangerZones();
             this.hud.setStateMessage('CLEAR');
           }
@@ -916,6 +919,7 @@ export class BattleScene extends Phaser.Scene {
     this.hitReliefTimer = undefined;
     this.director.cancelCurrent();
     this.hideDangerZones();
+    this.boss.setExpression('stunned');
     this.boss.setWeakPointVisible(true);
     this.vulnerableRemainingMs = VULNERABLE_WINDOW_MS;
     this.stateMessageHoldUntilMs = 0;
@@ -1122,15 +1126,15 @@ export class BattleScene extends Phaser.Scene {
   private setupBossChatter(): void {
     this.bossSpeech = this.add.text(270, 376, '', {
       fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
-      fontSize: '17px',
-      fontStyle: '800',
+      fontSize: '32px',
+      fontStyle: '900',
       color: '#f4f7f2',
-      backgroundColor: '#111a11',
+      backgroundColor: 'rgba(15, 15, 15, 0.7)',
       stroke: '#071008',
-      strokeThickness: 2,
-      padding: { x: 13, y: 8 },
+      strokeThickness: 4,
+      padding: { x: 24, y: 14 },
       align: 'center',
-      wordWrap: { width: 430 },
+      wordWrap: { width: 450 },
     }).setOrigin(0.5).setDepth(105).setAlpha(0);
   }
 
@@ -1161,7 +1165,7 @@ export class BattleScene extends Phaser.Scene {
     this.lastBossLineAt = this.time.now;
 
     this.tweens.killTweensOf(this.bossSpeech);
-    this.bossSpeech.setText(`「${line}」`).setY(382).setAlpha(0).setScale(0.94);
+    this.bossSpeech.setText(`「${line}」`).setY(388).setAlpha(0).setScale(0.9);
     this.tweens.add({
       targets: this.bossSpeech,
       y: 370,
