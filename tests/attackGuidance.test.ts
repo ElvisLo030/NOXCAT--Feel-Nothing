@@ -1,18 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { PatternIdSchema } from '../src/ai/bossSchema';
-import { ATTACK_CUES } from '../src/game/ui/attackCues';
+import { DANGER_INSTRUCTION } from '../src/game/ui/attackCues';
 import { COMBAT_COLORS } from '../src/theme/palette';
 import { trackHomingTarget } from '../src/game/systems/HomingGuidance';
 import { createTunnelTrajectory, retargetTunnelTrajectory, sampleTunnelProjection } from '../src/game/systems/ProjectileDepth';
 import { PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../src/game/constants';
 
 describe('attack guidance', () => {
-  it('gives all nine attacks distinct names and one consistent red-zone instruction', () => {
-    const cues = PatternIdSchema.options.map((id) => ATTACK_CUES[id]);
-    expect(new Set(cues.map((cue) => cue.name)).size).toBe(9);
-    for (const cue of cues) {
-      expect(cue.instruction).toBe('離開紅色區域');
-    }
+  it('uses one consistent red-zone instruction and a distinct danger colour', () => {
+    expect(DANGER_INSTRUCTION).toBe('離開紅色區域');
     expect(COMBAT_COLORS.danger).toBe(0xff5364);
     expect(COMBAT_COLORS.danger).not.toBe(COMBAT_COLORS.safe);
   });

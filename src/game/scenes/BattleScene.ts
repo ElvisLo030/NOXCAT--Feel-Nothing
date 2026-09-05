@@ -30,7 +30,7 @@ import { BattleState, isTerminalBattleState } from '../events';
 import { getBattleRuntime, type BattleFaceSnapshot } from '../runtime';
 import { AimGuide } from '../ui/AimGuide';
 import { Hud } from '../ui/Hud';
-import { ATTACK_CUES, DANGER_INSTRUCTION } from '../ui/attackCues';
+import { DANGER_INSTRUCTION } from '../ui/attackCues';
 import { AttackDirector, type DangerZoneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import {
@@ -182,15 +182,14 @@ export class BattleScene extends Phaser.Scene {
         },
         onDangerZonesChanged: (zones) => this.paintDangerZones(zones),
         getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
-        onWavePhaseChanged: (phase, pattern, _volley, _safeLane, dangerZones) => {
-          const cue = ATTACK_CUES[pattern];
+        onWavePhaseChanged: (phase, _pattern, _volley, _safeLane, dangerZones) => {
           if (phase === 'TELEGRAPH') {
             this.showDangerZones(dangerZones ?? []);
-            this.hud.setStateMessage(cue.instruction, true);
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
             this.hud.flash(DANGER_INSTRUCTION, 850, true);
           } else if (phase === 'ACTIVE') {
             this.fadeDangerZones();
-            this.hud.setStateMessage(cue.instruction, true);
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
           } else {
             this.hideDangerZones();
             this.hud.setStateMessage('CLEAR');

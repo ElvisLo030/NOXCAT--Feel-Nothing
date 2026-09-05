@@ -131,7 +131,6 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
       width: COMBAT_ARENA.width,
       height: Math.max(0, safeTop - COMBAT_ARENA.y),
       ...projection,
-      ...projection,
     },
     {
       kind: 'rect',
@@ -139,7 +138,6 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
       y: safeBottom,
       width: COMBAT_ARENA.width,
       height: Math.max(0, bottom - safeBottom),
-      ...projection,
       ...projection,
     },
   ];
