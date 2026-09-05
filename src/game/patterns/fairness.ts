@@ -12,6 +12,15 @@ export interface PlayerPosition {
 export const ATTACK_NEAR_MIN_X = -40;
 export const ATTACK_NEAR_MAX_X = 580;
 
+/**
+ * World Y where falling attacks enter. Stays below the HUD on both the
+ * authored 540×960 canvas and the extra world shown by extended viewports.
+ */
+export const FALLING_ATTACK_ORIGIN_Y = 110;
+/** Visible top-down columns still graze both legal player edges. */
+export const FALLING_ATTACK_MIN_X = 16;
+export const FALLING_ATTACK_MAX_X = 524;
+
 /** Visible wall portals for box-tunnel attacks; cards emerge here, not at the Boss. */
 export const SIDE_ATTACK_ORIGIN_LEFT_X = -24;
 export const SIDE_ATTACK_ORIGIN_RIGHT_X = 564;
@@ -24,6 +33,30 @@ export const PROJECTILE_RECYCLE_TOP = -300;
 
 /** Fast hazards must remain unable to touch the sampled player for this long. */
 export const MIN_REACTION_MS = 550;
+
+// 目前果凍輪廓為 138×126，含拖曳形變；安全落點依實際活動區計算。
+export const DODGE_REPOSITION_X = (PLAYER_MAX_X - PLAYER_MIN_X) / 3;
+export const DODGE_REPOSITION_Y = (PLAYER_MAX_Y - PLAYER_MIN_Y) / 3;
+export const DODGE_BODY_CLEARANCE = 100;
+
+/** 預警期間最多移動三分之一活動區，保留辨識與彈簧跟隨時間。 */
+export function reachableLane(
+  rng: SeededRng,
+  axis: 'x' | 'y',
+  position?: PlayerPosition,
+  inset = 76,
+): number {
+  const minimum = axis === 'x' ? PLAYER_MIN_X : PLAYER_MIN_Y;
+  const maximum = axis === 'x' ? PLAYER_MAX_X : PLAYER_MAX_Y;
+  const travel = axis === 'x' ? DODGE_REPOSITION_X : DODGE_REPOSITION_Y;
+  const current = clampPlayerPosition(position)?.[axis] ?? (minimum + maximum) / 2;
+  return rng.range(Math.max(minimum + inset, current - travel), Math.min(maximum - inset, current + travel));
+}
+
+export function reachableSafeSpot(rng: SeededRng, position?: PlayerPosition, radius = 26) {
+  return { kind: 'safe' as const, x: reachableLane(rng, 'x', position, radius),
+    y: reachableLane(rng, 'y', position, radius), radius };
+}
 
 export function clampPlayerPosition(position: PlayerPosition | undefined): PlayerPosition | undefined {
   if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return undefined;
@@ -61,6 +94,24 @@ export function evenlySpaced(minimum: number, maximum: number, count: number): n
     { length: count },
     (_, index) => minimum + ((maximum - minimum) * index) / (count - 1),
   );
+}
+
+/** 把整批文件分配至缺口兩側，避免先塞進缺口再夾值而疊成同一欄。 */
+export function columnsOutsideLane(center: number, clearance: number, count: number): number[] {
+  const leftEnd = center - clearance;
+  const rightStart = center + clearance;
+  const leftWidth = Math.max(0, leftEnd - FALLING_ATTACK_MIN_X);
+  const rightWidth = Math.max(0, FALLING_ATTACK_MAX_X - rightStart);
+  const leftCount = leftWidth === 0 ? 0 : rightWidth === 0 ? count
+    : Math.max(1, Math.min(count - 1, Math.round(count * leftWidth / (leftWidth + rightWidth))));
+  const left = evenlySpaced(FALLING_ATTACK_MIN_X, leftEnd, leftCount);
+  const right = evenlySpaced(rightStart, FALLING_ATTACK_MAX_X, count - leftCount);
+  const columns: number[] = [];
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    if (left[index] !== undefined) columns.push(left[index]!);
+    if (right[index] !== undefined) columns.push(right[index]!);
+  }
+  return columns;
 }
 
 /** A deterministic, visibly non-zero fixed yaw around the screen's vertical axis. */

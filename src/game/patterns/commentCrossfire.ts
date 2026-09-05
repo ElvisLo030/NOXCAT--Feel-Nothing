@@ -3,6 +3,7 @@ import { GAME_WIDTH, GAME_HEIGHT, DODGE_AREA_TOP, PLAYER_MIN_X, PLAYER_MAX_X, PL
 import type { ProjectileConfig } from '../entities/Projectile';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
 import { clipLineToBounds } from '../systems/LineGeometry';
+import { reachableSafeSpot, type PlayerPosition } from './fairness';
 import {
   createPatternTimeline,
   staggeredSpawnEvents,
@@ -11,20 +12,15 @@ import {
 } from './types';
 
 const FALLBACK_COMMENTS = ['這裡對齊', '字再大一點', '再改一下', '今天要上', '最終版呢'] as const;
-export const COMMENT_SAFE_SPOT_RADIUS = 18;
+export const COMMENT_SAFE_SPOT_RADIUS = 26;
 // 以角色與文件的完整輪廓保留空間，不能只拿固定碰撞圓判斷安全。
 export const COMMENT_CLEARANCE_X = 138;
 export const COMMENT_CLEARANCE_Y = 96;
 const PLAY_BOUNDS = { left: PLAYER_MIN_X, right: PLAYER_MAX_X, top: PLAYER_MIN_Y, bottom: PLAYER_MAX_Y };
 const SOURCE_BOUNDS = { left: -60, right: GAME_WIDTH + 60, top: DODGE_AREA_TOP - 120, bottom: GAME_HEIGHT + 80 };
 
-export function commentCrossfireLayout(rng: SeededRng, intensity: 1 | 2 | 3) {
-  const safeSpot = {
-    kind: 'safe' as const,
-    x: rng.pick([110, 270, 430]) + rng.range(-10, 10),
-    y: rng.chance(0.5) ? PLAYER_MIN_Y + COMMENT_SAFE_SPOT_RADIUS : PLAYER_MAX_Y - COMMENT_SAFE_SPOT_RADIUS,
-    radius: COMMENT_SAFE_SPOT_RADIUS,
-  };
+export function commentCrossfireLayout(rng: SeededRng, intensity: 1 | 2 | 3, player?: PlayerPosition) {
+  const safeSpot = reachableSafeSpot(rng, player, COMMENT_SAFE_SPOT_RADIUS);
   const candidates = [];
   for (let baseAngle = 0; baseAngle < 360; baseAngle += 15) {
     const angle = baseAngle + (baseAngle % 90 === 0 ? 0 : rng.range(-4, 4));
@@ -106,7 +102,7 @@ export function planCommentCrossfire(
       text: rng.pick(comments),
       perspectiveOrigin: ray.origin,
       perspectiveTarget: ray.target,
-      perspectiveDurationMs: 1_500,
+      perspectiveDurationMs: Math.max(1_100, Math.round(1_650 / Math.max(0.1, speedScale))),
     };
   });
   return { layout, projectiles };

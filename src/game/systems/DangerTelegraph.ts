@@ -1,4 +1,5 @@
 import type { PatternId } from '../../ai/bossSchema';
+import { BEAM_HALF_THICKNESS, beamSegment, type BeamLayout } from '../patterns/deadlineBeam';
 import {
   BOSS_PROJECTILE_ORIGIN,
   calculateTunnelContactDepth,
@@ -199,19 +200,20 @@ export function dangerZonesForPattern(
   pattern: PatternId,
   safeLane: SafeLaneHint | undefined,
   playerPosition: { x: number; y: number } | undefined,
-  deadlineBeamY: number,
+  deadlineBeams: readonly BeamLayout[] = [],
 ): DangerZoneHint[] {
   if (safeLane) return dangerRectsOutsideSafeLane(safeLane);
 
   if (pattern === 'deadline_beam') {
-    return [{
-      kind: 'rect',
-      x: COMBAT_ARENA.x,
-      y: deadlineBeamY - 22,
-      width: COMBAT_ARENA.width,
-      height: 44,
-      projection: 'screen',
-    }];
+    return deadlineBeams.map((layout) => {
+      const segment = beamSegment(layout);
+      return {
+        kind: 'ray' as const,
+        from: segment.start,
+        to: segment.end,
+        halfWidth: BEAM_HALF_THICKNESS + 5,
+      };
+    });
   }
 
   if (pattern === 'revision_homing' && playerPosition) {

@@ -63,15 +63,15 @@ describe('danger telegraph geometry', () => {
   });
 
   it('uses an exact beam band and a non-colour-only target marker for dynamic homing', () => {
-    expect(dangerZonesForPattern('deadline_beam', undefined, undefined, 612)).toEqual([{
-      kind: 'rect',
-      x: COMBAT_ARENA.x,
-      y: 590,
-      width: COMBAT_ARENA.width,
-      height: 44,
-      projection: 'screen',
-    }]);
-    expect(dangerZonesForPattern('revision_homing', undefined, { x: 270, y: 710 }, 0)).toEqual([{
+    const beamZones = dangerZonesForPattern('deadline_beam', undefined, undefined, [
+      { x: 270, y: 612, angle: 0 },
+    ]);
+    expect(beamZones).toHaveLength(1);
+    expect(beamZones[0]).toMatchObject({ kind: 'ray' });
+    const ray = beamZones[0] as Extract<typeof beamZones[number], { kind: 'ray' }>;
+    expect(Math.abs(ray.to.x - ray.from.x)).toBeGreaterThan(500);
+    expect(Math.abs(ray.to.y - 612)).toBeLessThan(1);
+    expect(dangerZonesForPattern('revision_homing', undefined, { x: 270, y: 710 })).toEqual([{
       kind: 'target',
       x: 270,
       y: 710,

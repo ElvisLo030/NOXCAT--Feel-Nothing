@@ -4,18 +4,18 @@ import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { Noxcat } from '../entities/Noxcat';
 import { Projectile, type ProjectileConfig } from '../entities/Projectile';
 import {
-  BOSS_PROJECTILE_ORIGIN,
-  projectTunnelLane,
-  TUNNEL_RADIUS_Y,
-} from './ProjectileDepth';
+  BEAM_HALF_THICKNESS,
+  BEAM_LENGTH,
+  type BeamLayout,
+} from '../patterns/deadlineBeam';
 import {
   isBeyondProjectileExitBoundary,
   PROJECTILE_MAX_LIFETIME_MS,
 } from './ProjectileExitMotion';
 
-export interface BeamHazard {
+export interface BeamHazard extends BeamLayout {
   id: number;
-  y: number;
+  length: number;
   height: number;
   telegraphMs: number;
   totalTelegraphMs: number;
@@ -41,34 +41,53 @@ export class ProjectileSystem {
     return projectile?.reset(config) ?? null;
   }
 
-  spawnBeam(y: number, telegraphMs = 750, activeMs = 520): BeamHazard {
+  spawnBeam(
+    layout: BeamLayout | number,
+    telegraphMs = 750,
+    activeMs = 520,
+  ): BeamHazard {
+    const resolved: BeamLayout = typeof layout === 'number'
+      ? { x: GAME_WIDTH / 2, y: layout, angle: 0 }
+      : layout;
+    const height = BEAM_HALF_THICKNESS * 2;
     const warning = this.scene.add.rectangle(
-      BOSS_PROJECTILE_ORIGIN.x,
-      BOSS_PROJECTILE_ORIGIN.y,
-      540,
-      5,
+      resolved.x,
+      resolved.y,
+      BEAM_LENGTH,
+      6,
       COMBAT_COLORS.danger,
       0.32,
     )
       .setStrokeStyle(1, 0xffffff, 0.75)
-      .setScale(0.04, 0.25)
+      .setRotation(resolved.angle)
       .setDepth(6)
       .setVisible(telegraphMs > 0);
-    const beam = this.scene.add.rectangle(270, y, 540, 34, COMBAT_COLORS.danger, 0.88)
+    const beam = this.scene.add.rectangle(
+      resolved.x,
+      resolved.y,
+      BEAM_LENGTH,
+      height,
+      COMBAT_COLORS.danger,
+      0.88,
+    )
+      .setRotation(resolved.angle)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(34)
       .setVisible(telegraphMs <= 0);
     const hazard: BeamHazard = {
       id: this.beamId,
-      y,
-      height: 34,
+      x: resolved.x,
+      y: resolved.y,
+      angle: resolved.angle,
+      length: BEAM_LENGTH,
+      height,
       telegraphMs,
       totalTelegraphMs: telegraphMs,
       activeMs,
       hitPlayer: false,
       perfectAwarded: false,
       warning,
-      beam
+      beam,
     };
     this.beamId += 1;
     this.beams.push(hazard);
@@ -109,17 +128,8 @@ export class ProjectileSystem {
           0,
           1,
         );
-        const laneRadius = (hazard.y - BOSS_PROJECTILE_ORIGIN.y) / TUNNEL_RADIUS_Y;
-        const projected = projectTunnelLane(Math.PI / 2, laneRadius, depth);
-        const fullDistance = Math.max(1, hazard.y - BOSS_PROJECTILE_ORIGIN.y);
-        const expansion = Phaser.Math.Clamp(
-          (projected.y - BOSS_PROJECTILE_ORIGIN.y) / fullDistance,
-          0,
-          1,
-        );
         hazard.warning
-          .setPosition(BOSS_PROJECTILE_ORIGIN.x, projected.y)
-          .setScale(Math.max(0.04, expansion), Phaser.Math.Linear(0.25, 1, depth))
+          .setDisplaySize(hazard.length, Phaser.Math.Linear(4, 16, depth))
           .setDepth(6 + depth * 27);
         hazard.warning.alpha = 0.18 + (Math.sin(hazard.telegraphMs * 0.045) + 1) * 0.2;
         if (hazard.telegraphMs <= 0) {

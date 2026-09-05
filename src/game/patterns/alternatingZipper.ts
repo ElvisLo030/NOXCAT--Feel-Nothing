@@ -1,8 +1,7 @@
 import type { SeededRng } from '../../utils/rng';
 import { PLAYER_HIT_RADIUS } from '../constants';
 import type { ProjectileConfig } from '../entities/Projectile';
-import { clearVerticalSafeWedgeForTunnelTarget } from '../systems/DangerTelegraph';
-import { clamp, randomSignedYawOffset } from './fairness';
+import { clamp, randomSignedYawOffset, FALLING_ATTACK_MIN_X, FALLING_ATTACK_MAX_X, FALLING_ATTACK_ORIGIN_Y } from './fairness';
 import {
   createPatternTimeline,
   fitEmissionTimes,
@@ -17,7 +16,7 @@ const PROJECTILE_RADIUS = 18;
 const TARGET_CLEARANCE = ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH
   + PLAYER_HIT_RADIUS
   + PROJECTILE_RADIUS
-  + 18;
+  + 38;
 
 export interface AlternatingZipperShot {
   readonly atMs: number;
@@ -44,34 +43,32 @@ export function planAlternatingZipper(
   let atMs = 0;
   const shots = Array.from({ length: shotCount }, (_, index): AlternatingZipperShot => {
     const side: -1 | 1 = index % 2 === 0 ? firstSide : (firstSide === -1 ? 1 : -1);
-    const rawTarget = {
+    const target = {
       x: clamp(
-        safeLaneX + side * (TARGET_CLEARANCE + rng.range(18, 96)),
-        -36,
-        576,
+        safeLaneX + side * (TARGET_CLEARANCE + rng.range(0, 36)),
+        FALLING_ATTACK_MIN_X,
+        FALLING_ATTACK_MAX_X,
       ),
-      y: 760 + (index % 3) * 52,
+      y: 910,
     };
-    const target = clearVerticalSafeWedgeForTunnelTarget(
-      rawTarget,
-      { center: safeLaneX, halfWidth: ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH },
-      side,
-      PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
-    );
+    // 左右交替齒列沿通道外側向外斜落，整段路徑都不穿過可站通道。
+    const originX = safeLaneX + side * TARGET_CLEARANCE;
+    target.x = side < 0 ? Math.min(target.x, originX) : Math.max(target.x, originX);
     const shot = {
       atMs,
       side,
       projectile: {
         kind: 'paper' as const,
-        x: 270 + side * 12,
-        y: 150,
+        x: originX,
+        y: FALLING_ATTACK_ORIGIN_Y,
         vx: side * rng.range(22, 44) * speedScale,
         vy: (285 + intensity * 22) * speedScale,
         radius: PROJECTILE_RADIUS,
         yawOffset: randomSignedYawOffset(rng, 10, 24),
         perspectiveTarget: target,
+        perspectiveOrigin: { x: originX, y: FALLING_ATTACK_ORIGIN_Y },
         // 後段同時加快接近速度，讓「越射越快」在畫面上也能讀出來。
-        perspectiveDurationMs: Math.round(Math.max(600, 900 - index * 42) / depthClockScale),
+        perspectiveDurationMs: Math.max(1_050, Math.round((1_500 - index * 40) / depthClockScale)),
       },
     };
     atMs += ALTERNATING_ZIPPER_INTERVALS_MS[

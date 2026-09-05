@@ -210,3 +210,36 @@ test('a real high-speed flick returns the real marked document to the Boss', asy
   expect(result).toMatchObject({ lives: initial.lives, reflectCount: 1, bossHp: 94 });
   expect(result?.energy ?? 0).toBeGreaterThanOrEqual(18);
 });
+
+test('a too-short pull keeps its PULL FARTHER hint readable before the countdown resumes', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Deterministic mouse timing covers the live aim-release path');
+
+  const canvas = await startFallbackBattle(page);
+  await page.evaluate(() => window.__NOXCAT_TEST__?.fillEnergy());
+  await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'VULNERABLE');
+
+  const [box, cat] = await Promise.all([
+    canvas.boundingBox(),
+    page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot()),
+  ]);
+  if (!box || !cat) throw new Error('Canvas or NOXCAT position unavailable');
+  const grab = toScreen(box, cat.x, cat.y);
+  // 只拉 14 世界像素，遠低於 AIM_MIN_PULL，因此彈射會被判定為拉太短。
+  const short = toScreen(box, cat.x, cat.y + 14);
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'AIMING');
+  await page.mouse.move(short.x, short.y);
+  await page.mouse.up();
+
+  await page.waitForTimeout(250);
+  const held = await page.evaluate(() => window.__NOXCAT_TEST__?.waveSnapshot());
+  expect(held?.stateMessage).toBe('PULL FARTHER');
+  expect(held?.vulnerableRemainingMs ?? 0).toBeGreaterThan(0);
+
+  await page.waitForFunction(
+    () => (window.__NOXCAT_TEST__?.waveSnapshot().stateMessage ?? '').startsWith('DO EVERYTHING'),
+    undefined,
+    { timeout: 2_000 },
+  );
+});

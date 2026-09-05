@@ -17,6 +17,7 @@ export interface NoxcatWaveSnapshot {
   dangerZones: readonly DangerZoneHint[];
   combatTimeScale: number;
   vulnerableRemainingMs: number;
+  stateMessage: string;
   weakPointTweenCount: number;
   dangerOverlayAlpha: number;
 }

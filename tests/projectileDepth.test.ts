@@ -551,7 +551,7 @@ describe('shared projectile perspective depth', () => {
     }
   });
 
-  it('keeps falling paper and returnable convergence deep in the player plane', () => {
+  it('keeps paper deep while placing the returnable at the player current height', () => {
     const paper = planPaperRain(new SeededRng(31), 3, 1, 270)[0]!;
     const returnable = planReturnableBurst(
       new SeededRng(32),
@@ -570,8 +570,8 @@ describe('shared projectile perspective depth', () => {
         config.perspectiveDurationMs,
         config.perspectiveOrigin,
       );
-      expect(trajectory.nearPoint.y).toBeGreaterThanOrEqual(800);
-      expect(trajectory.nearPoint.y - BOSS_PROJECTILE_ORIGIN.y).toBeGreaterThan(400);
+      if (config.kind === 'returnable') expect(trajectory.nearPoint.y).toBe(720);
+      else expect(trajectory.nearPoint.y).toBeGreaterThanOrEqual(800);
       expect(trajectory.approachLength / Math.hypot(config.vx, config.vy)).toBeLessThan(2.8);
       verifyNearPlaneTraversal(config);
     }
