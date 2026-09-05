@@ -167,8 +167,6 @@ export class AppController {
         <h2 id="loading-title" tabindex="-1">AI 正在把煩惱<br>編譯成 BOSS…</h2>
         <div class="compile-bar" role="progressbar" aria-label="AI 對話生成進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
         <p class="compile-count" data-loading-count>0 / 2 批・0%</p>
-        <p class="loading-copy" data-loading-copy>正在生成第一批 6 句對話…</p>
-        <p class="loading-detail">每批 6 句，共生成 12 句不重複的繁體中文對話</p>
       </main>
     `;
     requireElement<HTMLElement>(this.root, '#loading-title').focus({ preventScroll: true });
@@ -181,14 +179,12 @@ export class AppController {
   ): void {
     const progressBar = this.root.querySelector<HTMLElement>('.compile-bar');
     const count = this.root.querySelector<HTMLElement>('[data-loading-count]');
-    const copy = this.root.querySelector<HTMLElement>('[data-loading-copy]');
-    if (!progressBar || !count || !copy) return;
+    if (!progressBar || !count) return;
 
     const safePercent = Math.max(0, Math.min(100, percent));
     progressBar.style.setProperty('--progress', `${safePercent}%`);
     progressBar.setAttribute('aria-valuenow', String(safePercent));
     setSafeText(count, `${completedBatches} / 2 批・${safePercent}%`);
-    setSafeText(copy, message);
   }
 
   private showCameraConsent(message = ''): void {
