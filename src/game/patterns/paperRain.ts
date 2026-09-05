@@ -80,8 +80,8 @@ export function planPaperRain(
       },
       // Independent deterministic depth clocks combine with timeline staging
       // so cards occupy visibly different near/mid/far planes.
-      perspectiveDurationMs: durationBands[index % durationBands.length]!
-        + Math.round(rng.range(-45, 45)),
+      perspectiveDurationMs: Math.round((durationBands[index % durationBands.length]!
+        + rng.range(-45, 45)) / Math.max(0.1, speedScale)),
     };
   });
 }

@@ -59,7 +59,8 @@ function createRuntime(
     player,
     rng,
     intensity,
-    durationMs: 4_000,
+    // 原始節奏使用足夠長的波次；最短波次的壓縮另由 attackReadability 驗證。
+    durationMs: 6_000,
     projectiles,
     speedScale: 1,
     waveIndex: 0,

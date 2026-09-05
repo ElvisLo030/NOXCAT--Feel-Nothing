@@ -69,6 +69,7 @@ describe('danger telegraph geometry', () => {
       y: 590,
       width: COMBAT_ARENA.width,
       height: 44,
+      projection: 'screen',
     }]);
     expect(dangerZonesForPattern('revision_homing', undefined, { x: 270, y: 710 }, 0)).toEqual([{
       kind: 'target',

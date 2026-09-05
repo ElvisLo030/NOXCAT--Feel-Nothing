@@ -64,7 +64,7 @@ export function commentCrossfireLayout(rng: SeededRng, intensity: 1 | 2 | 3) {
   // 先篩掉會封死避難點的射線，再隨機選來源和角度；同一波不依序輪流發射。
   const pool = rng.shuffled(candidates);
   const rays = [pool[0]!];
-  const count = intensity === 1 ? 1 : intensity === 3 && rng.chance(0.5) ? 3 : 2;
+  const count = intensity === 3 && rng.chance(0.5) ? 3 : 2;
   while (rays.length < count) {
     const available = pool.filter((candidate) => rays.every((ray) => ray.direction !== candidate.direction));
     const diverse = available.find((candidate) => rays.every((ray) => {
