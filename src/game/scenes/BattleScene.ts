@@ -12,6 +12,7 @@ import {
   GAME_HEIGHT,
   GAME_WIDTH,
   LAUNCH_SPEED,
+  ENERGY_PER_PERFECT_WAVE,
   NEUTRAL_ENERGY_PER_SECOND,
   POST_HIT_RELIEF_MS,
   PLAYER_INVULNERABLE_MS,
@@ -30,14 +31,15 @@ import { BattleState, isTerminalBattleState } from '../events';
 import { getBattleRuntime, type BattleFaceSnapshot } from '../runtime';
 import { AimGuide } from '../ui/AimGuide';
 import { Hud } from '../ui/Hud';
-import { DANGER_INSTRUCTION } from '../ui/attackCues';
+import { ATTACK_NAMES, DANGER_INSTRUCTION } from '../ui/attackCues';
 import { AttackDirector, type DangerZoneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import {
   polygonSeparation,
-  sweptAxisDistance,
+  segmentDistance,
   sweptPointDistance,
 } from '../systems/CollisionMath';
+import { beamSegment } from '../patterns/deadlineBeam';
 import { ProjectileSystem } from '../systems/ProjectileSystem';
 import { computePacing, type PacingScale } from '../systems/PacingDirector';
 import {
@@ -68,6 +70,9 @@ import {
   clampToLaunchBoundary,
   crossedLaunchBoundary,
 } from '../systems/JellyMotionSystem';
+
+/** 拉桿不足的提示至少維持這麼久，之後才交還給脆弱窗口倒數。 */
+const PULL_HINT_HOLD_MS = 650;
 
 export interface BattleResultDetail {
   won: boolean;
@@ -115,6 +120,8 @@ export class BattleScene extends Phaser.Scene {
   private simulationUpdateCount = 0;
   private collisionUpdateCount = 0;
   private vulnerableRemainingMs = 0;
+  /** 讓短暫的操作提示撐過幾幀，不被每幀重寫的倒數蓋掉。 */
+  private stateMessageHoldUntilMs = 0;
   private combatTimeScale = 1;
   private presentationTimeMs = 0;
   private lastInputSample: {
@@ -189,11 +196,11 @@ export class BattleScene extends Phaser.Scene {
         },
         onDangerZonesChanged: (zones) => this.paintDangerZones(zones),
         getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
-        onWavePhaseChanged: (phase, _pattern, _volley, _safeLane, dangerZones) => {
+        onWavePhaseChanged: (phase, pattern, _volley, _safeLane, dangerZones) => {
           if (phase === 'TELEGRAPH') {
             this.showDangerZones(dangerZones ?? []);
             this.hud.setStateMessage(DANGER_INSTRUCTION, true);
-            this.hud.flash(DANGER_INSTRUCTION, 850, true);
+            this.hud.flash(ATTACK_NAMES[pattern], 850, true);
           } else if (phase === 'ACTIVE') {
             this.fadeDangerZones();
             this.hud.setStateMessage(DANGER_INSTRUCTION, true);
@@ -242,7 +249,7 @@ export class BattleScene extends Phaser.Scene {
       this.director.setPacingScale(this.currentPacing);
       this.updateVulnerabilityWindow(delta);
       this.updateNeutral(face, dt);
-      this.handleBeamCollisions(noxcatBeforeStep.y, delta);
+      this.handleBeamCollisions(noxcatBeforeStep, delta);
       this.projectiles.update(dt, this.noxcat, this.combatTimeScale);
       this.updateHomingCue(delta);
       this.handleProjectileCollisions(noxcatBeforeStep, delta);
@@ -424,7 +431,11 @@ export class BattleScene extends Phaser.Scene {
         if (this.director.currentPattern === 'closing_walls') {
           this.drawCueArrow(76, y, 1, 0);
           this.drawCueArrow(GAME_WIDTH - 76, y, -1, 0);
-        } else if (this.director.currentPattern === 'top_downpour') {
+        } else if (
+          this.director.currentPattern === 'top_downpour'
+          || this.director.currentPattern === 'paper_rain'
+          || this.director.currentPattern === 'pulse_barrage'
+        ) {
           const x = (Math.max(20, zone.x) + Math.min(GAME_WIDTH - 20, right)) / 2;
           for (const offset of [-40, 40]) this.drawCueArrow(x, y + offset, 0, 1);
         }
@@ -480,12 +491,20 @@ export class BattleScene extends Phaser.Scene {
     const distance = Math.max(1, Math.hypot(dx, dy));
     const ux = dx / distance;
     const uy = dy / distance;
-    const segment = clipLineToBounds(zone.from, { x: ux, y: uy }, {
+    const clipped = clipLineToBounds(zone.from, { x: ux, y: uy }, {
       left: 14, right: GAME_WIDTH - 14, top: DODGE_AREA_TOP + 8, bottom: GAME_HEIGHT - 64,
     });
-    if (!segment) return;
-    const { entry: from, exit: to } = segment;
-    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    if (!clipped) return;
+    // clipLineToBounds 裁的是無限直線，但光束只到 zone.to；不夾回線段範圍，
+    // 斜向光束會把終點之後可安全站立的地板畫成危險區。
+    const entryOffset = (clipped.entry.x - zone.from.x) * ux + (clipped.entry.y - zone.from.y) * uy;
+    const exitOffset = (clipped.exit.x - zone.from.x) * ux + (clipped.exit.y - zone.from.y) * uy;
+    const startOffset = Math.max(0, Math.min(entryOffset, exitOffset));
+    const endOffset = Math.min(distance, Math.max(entryOffset, exitOffset));
+    const length = endOffset - startOffset;
+    if (length <= 1) return;
+    const from = { x: zone.from.x + ux * startOffset, y: zone.from.y + uy * startOffset };
+    const to = { x: zone.from.x + ux * endOffset, y: zone.from.y + uy * endOffset };
     const colour = COMBAT_COLORS.danger;
     const band = [
       { x: from.x - uy * zone.halfWidth, y: from.y + ux * zone.halfWidth },
@@ -713,7 +732,7 @@ export class BattleScene extends Phaser.Scene {
       if (!launched || this.aimPull < AIM_MIN_PULL || pullVector.lengthSq() === 0) {
         this.noxcat.cancelAim(this.aimAnchor.x, this.aimAnchor.y);
         this.hud.setStateMessage('PULL FARTHER');
-        this.time.delayedCall(650, () => this.hud.setStateMessage('DO EVERYTHING'));
+        this.stateMessageHoldUntilMs = this.time.now + PULL_HINT_HOLD_MS;
         return;
       }
       const speed = LAUNCH_SPEED * Phaser.Math.Clamp(this.aimPull / AIM_MAX_PULL, 0.62, 1);
@@ -840,11 +859,19 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private handleBeamCollisions(noxcatPreviousY: number, deltaMs: number): void {
-    for (const beam of this.projectiles.activeBeams()) {
-      if (beam.telegraphMs > 0) continue;
-      const collides = sweptAxisDistance(noxcatPreviousY, this.noxcat.y, beam.y)
-        <= this.noxcat.hitRadius + beam.height / 2;
+  private handleBeamCollisions(
+    previous: { x: number; y: number },
+    deltaMs: number,
+  ): void {
+    const live = this.projectiles.activeBeams().filter((beam) => beam.telegraphMs <= 0);
+    for (const beam of live) {
+      const segment = beamSegment(beam);
+      const collides = segmentDistance(
+        previous,
+        { x: this.noxcat.x, y: this.noxcat.y },
+        segment.start,
+        segment.end,
+      ) <= this.noxcat.hitRadius + beam.height / 2;
       if (collides && !beam.hitPlayer && this.session.state === BattleState.DODGING) {
         beam.hitPlayer = true;
         if (this.session.takePlayerHit(this.session.elapsedMs)) {
@@ -854,13 +881,16 @@ export class BattleScene extends Phaser.Scene {
           this.beginPostHitRelief();
         }
       }
-      // Resolve contact before awarding the end-of-wave bonus. Otherwise a
-      // player entering the beam on its final active frame could be hit and
-      // still receive PERFECT WAVE for that same beam.
-      if (beam.activeMs <= deltaMs + 18 && !beam.hitPlayer && !this.awardedBeams.has(beam.id)) {
-        this.awardedBeams.add(beam.id);
+    }
+    const finishing = live.filter((beam) => beam.activeMs <= deltaMs + 18);
+    const stillLive = live.filter((beam) => beam.activeMs > deltaMs + 18);
+    // 整波雷射都結束且全部躲開才給一次完美波次，避免 2–3 條同時擊中時連加能量。
+    if (finishing.length > 0 && stillLive.length === 0 && live.every((beam) => !beam.hitPlayer)) {
+      const alreadyAwarded = live.some((beam) => this.awardedBeams.has(beam.id));
+      if (!alreadyAwarded) {
+        for (const beam of live) this.awardedBeams.add(beam.id);
         this.session.registerPerfectWave();
-        this.hud.flash('PERFECT WAVE +12', 700);
+        this.hud.flash(`PERFECT WAVE +${ENERGY_PER_PERFECT_WAVE}`, 700);
       }
     }
   }
@@ -883,16 +913,18 @@ export class BattleScene extends Phaser.Scene {
     this.director.cancelCurrent();
     this.hideDangerZones();
     this.boss.setWeakPointVisible(true);
-    const scale = this.currentPacing?.vulnerableScale ?? 1;
-    this.vulnerableRemainingMs = Math.max(1, Math.round(VULNERABLE_WINDOW_MS * scale));
+    this.vulnerableRemainingMs = VULNERABLE_WINDOW_MS;
+    this.stateMessageHoldUntilMs = 0;
     const combatScale = this.currentPacing?.combatScale ?? 0.55;
     this.setCombatTimeScale(combatScale);
     this.audio.play('full');
-    this.hud.setStateMessage('DO EVERYTHING');
+    this.showAttackTimeoutPrompt(VULNERABLE_WINDOW_MS);
     this.showBossLine(true);
     if (this.firstEnergyTutorial) {
       this.firstEnergyTutorial = false;
-      this.hud.flash('按住果凍貓・向後拉・放開！', 2_200);
+      this.hud.flash('5 秒內按住果凍貓・向後拉・放開！', 2_400);
+    } else {
+      this.hud.flash('5 秒內拉伸彈射！', 1_600);
     }
   }
 
@@ -963,7 +995,10 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
     this.vulnerableRemainingMs = Math.max(0, this.vulnerableRemainingMs - deltaMs);
-    if (this.vulnerableRemainingMs > 0) return;
+    if (this.vulnerableRemainingMs > 0) {
+      this.showAttackTimeoutPrompt(this.vulnerableRemainingMs);
+      return;
+    }
 
     if (this.session.state === BattleState.AIMING) this.cancelPointerInteraction();
     if (!this.session.expireVulnerability()) return;
@@ -972,11 +1007,18 @@ export class BattleScene extends Phaser.Scene {
     this.director.resume(true);
     if (this.focusPaused) this.director.pause();
     this.hud.setStateMessage('');
-    this.hud.flash('WINDOW CLOSED', 650);
+    this.hud.flash('時間到・窗口關閉', 700, true);
+  }
+
+  private showAttackTimeoutPrompt(remainingMs: number): void {
+    if (this.time.now < this.stateMessageHoldUntilMs) return;
+    const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    this.hud.setStateMessage(`DO EVERYTHING · ${seconds}`, seconds <= 2);
   }
 
   private clearVulnerabilityWindow(): void {
     this.vulnerableRemainingMs = 0;
+    this.stateMessageHoldUntilMs = 0;
   }
 
   private setCombatTimeScale(scale: number): void {
@@ -1255,7 +1297,7 @@ export class BattleScene extends Phaser.Scene {
         if (isTerminalBattleState(this.session.state)) return;
         // Use the same clock and transition entry as a naturally elapsed
         // round; the next scene update then runs the normal result dispatch.
-        this.session.advanceTime(this.session.remainingMs);
+        this.session.advanceTime(this.session.remainingMs, { ignoreAttackPause: true });
       },
       overloadForTest: () => {
         if (isTerminalBattleState(this.session.state)) return;
@@ -1292,6 +1334,7 @@ export class BattleScene extends Phaser.Scene {
           dangerZones: this.director.currentDangerZones,
           combatTimeScale: this.combatTimeScale,
           vulnerableRemainingMs: this.vulnerableRemainingMs,
+          stateMessage: this.hud.stateMessage,
           weakPointTweenCount: this.boss.weakPointTweenCount,
           dangerOverlayAlpha: this.waveGuide.alpha,
           pacing: this.currentPacing,

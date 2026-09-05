@@ -9,7 +9,7 @@ export const PLAYER_MAX_X = GAME_WIDTH - 46;
 export const PLAYER_MIN_Y = DODGE_AREA_TOP + 60;
 export const PLAYER_MAX_Y = GAME_HEIGHT - 76;
 
-export const ROUND_DURATION_MS = 180_000;
+export const ROUND_DURATION_MS = 90_000;
 export const PLAYER_MAX_LIVES = 3;
 export const PLAYER_HIT_RADIUS = 18;
 export const PLAYER_GRAZE_RADIUS = 43;
@@ -26,13 +26,13 @@ export const MAX_FOLLOW_SPEED = 1_500;
 export const REFLECT_MIN_SPEED = 520;
 
 export const ENERGY_MAX = 100;
-// Single, readable waves replace overlapping volleys. Eight energy per graze
-// keeps a no-camera player able to charge within one to two well-played waves.
-export const ENERGY_PER_GRAZE = 8;
-export const ENERGY_PER_REFLECT = 18;
-export const ENERGY_PER_PERFECT_WAVE = 12;
+// ~5× the original graze / reflect / wave / camera rates so a 90-second
+// round can fill FEEL NOTHING from a handful of grazes.
+export const ENERGY_PER_GRAZE = 40;
+export const ENERGY_PER_REFLECT = 90;
+export const ENERGY_PER_PERFECT_WAVE = 60;
 export const ENERGY_LOSS_ON_HIT = 20;
-export const NEUTRAL_ENERGY_PER_SECOND = 1.4;
+export const NEUTRAL_ENERGY_PER_SECOND = 7;
 export const NEUTRAL_BONUS_THRESHOLD = 88;
 export const FEEL_DETECTED_THRESHOLD = 70;
 export const FEEL_DETECTED_HOLD_MS = 250;
@@ -46,7 +46,7 @@ export const AIM_MAX_PULL = 160;
 export const AIM_MIN_PULL = 36;
 export const LAUNCH_SPEED = 1_100;
 export const LAUNCH_MISS_ENERGY = 30;
-export const VULNERABLE_WINDOW_MS = 4_500;
+export const VULNERABLE_WINDOW_MS = 5_000;
 export const STAGGER_DURATION_MS = 800;
 
 export const POSITION_STIFFNESS = 280;

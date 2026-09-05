@@ -110,6 +110,29 @@ function expectOutsidePerspectiveSafeLane(
   }
 }
 
+function expectOutsideScreenSafeLane(
+  config: ProjectileConfig,
+  laneX: number,
+  halfWidth: number,
+): void {
+  const trajectory = trajectoryFor(config);
+  const radius = config.radius ?? 18;
+  const clearance = halfWidth + radius + PLAYER_HIT_RADIUS;
+  for (let index = 0; index <= 20; index += 1) {
+    const depth = PROJECTILE_CONTACT_DEPTH
+      + (1 - PROJECTILE_CONTACT_DEPTH) * index / 20;
+    const authoredPoint = {
+      x: trajectory.spawn.x
+        + (trajectory.approachPoint.x - trajectory.spawn.x) * depth,
+      y: trajectory.spawn.y
+        + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
+    };
+    const projection = sampleTunnelProjection(trajectory, authoredPoint);
+    expect(projection.collisionActive).toBe(true);
+    expect(Math.abs(projection.position.x - laneX)).toBeGreaterThanOrEqual(clearance - 1e-7);
+  }
+}
+
 describe('new deterministic attack patterns', () => {
   it('admits all three pattern ids through the BossDNA trust boundary', () => {
     for (const pattern of NEW_PATTERNS) {
@@ -136,6 +159,7 @@ describe('new deterministic attack patterns', () => {
       const target = config.perspectiveTarget;
       expect(origin).toEqual({ x: config.x, y: TOP_DOWNPOUR_ORIGIN_Y });
       expect(target).toEqual({ x: config.x, y: TOP_DOWNPOUR_TARGET_Y });
+      expect(config.y).toBeLessThan(370);
       expect(config.vx).toBe(0);
       expect(Math.abs(config.x - first.safeLaneX)).toBeGreaterThanOrEqual(
         TOP_DOWNPOUR_SAFE_LANE_HALF_WIDTH
@@ -191,8 +215,12 @@ describe('new deterministic attack patterns', () => {
     ]);
     for (const formation of first.formations) {
       expect(formation.projectiles).toHaveLength(8);
+      expect(new Set(formation.projectiles.map((card) => Math.round(card.x / 12))).size)
+        .toBeGreaterThan(3);
       for (const config of formation.projectiles) {
-        expectOutsidePerspectiveSafeLane(
+        expect(config.perspectiveOrigin).toEqual({ x: config.x, y: TOP_DOWNPOUR_ORIGIN_Y });
+        expect(Math.abs(config.x - 270)).toBeGreaterThan(8);
+        expectOutsideScreenSafeLane(
           config,
           first.safeLaneX,
           PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH,
@@ -279,7 +307,7 @@ describe('new deterministic attack patterns', () => {
           );
           for (const formation of pulse.formations) {
             for (const config of formation.projectiles) {
-              expectOutsidePerspectiveSafeLane(
+              expectOutsideScreenSafeLane(
                 config,
                 pulse.safeLaneX,
                 PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH,
@@ -338,7 +366,7 @@ describe('new deterministic attack patterns', () => {
 
     director.start();
     expect(director.currentSafeLane).toMatchObject({ axis: 'vertical' });
-    if (pattern === 'top_downpour') {
+    if (pattern === 'top_downpour' || pattern === 'pulse_barrage') {
       expect(director.currentSafeLane?.projection).toBe('screen');
     }
     director.update(ATTACK_TELEGRAPH_MS[pattern] - 1, 3);

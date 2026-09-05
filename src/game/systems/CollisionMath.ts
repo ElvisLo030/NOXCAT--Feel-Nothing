@@ -7,7 +7,7 @@ export interface CollisionCircle extends CollisionPoint {
   readonly radius: number;
 }
 
-function pointToSegmentDistance(
+export function distanceToLineSegment(
   point: CollisionPoint,
   start: CollisionPoint,
   end: CollisionPoint,
@@ -18,6 +18,22 @@ function pointToSegmentDistance(
   if (lengthSquared <= Number.EPSILON) return Math.hypot(point.x - start.x, point.y - start.y);
   const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
   return Math.hypot(point.x - (start.x + dx * t), point.y - (start.y + dy * t));
+}
+
+/** Minimum distance between two finite segments, zero when they cross. */
+export function segmentDistance(
+  firstStart: CollisionPoint,
+  firstEnd: CollisionPoint,
+  secondStart: CollisionPoint,
+  secondEnd: CollisionPoint,
+): number {
+  if (segmentIntersection(firstStart, firstEnd, secondStart, secondEnd)) return 0;
+  return Math.min(
+    distanceToLineSegment(firstStart, secondStart, secondEnd),
+    distanceToLineSegment(firstEnd, secondStart, secondEnd),
+    distanceToLineSegment(secondStart, firstStart, firstEnd),
+    distanceToLineSegment(secondEnd, firstStart, firstEnd),
+  );
 }
 
 /** True for either clockwise or counter-clockwise convex polygons. */
@@ -54,7 +70,7 @@ export function circlePolygonSeparation(
   for (let index = 0; index < polygon.length; index += 1) {
     edgeDistance = Math.min(
       edgeDistance,
-      pointToSegmentDistance(circle, polygon[index]!, polygon[(index + 1) % polygon.length]!),
+      distanceToLineSegment(circle, polygon[index]!, polygon[(index + 1) % polygon.length]!),
     );
   }
   return edgeDistance - Math.max(0, circle.radius);
@@ -166,7 +182,7 @@ export function polygonSeparation(
   let distance = Number.POSITIVE_INFINITY;
   for (const point of first) {
     for (let index = 0; index < second.length; index += 1) {
-      distance = Math.min(distance, pointToSegmentDistance(
+      distance = Math.min(distance, distanceToLineSegment(
         point,
         second[index]!,
         second[(index + 1) % second.length]!,
@@ -175,7 +191,7 @@ export function polygonSeparation(
   }
   for (const point of second) {
     for (let index = 0; index < first.length; index += 1) {
-      distance = Math.min(distance, pointToSegmentDistance(
+      distance = Math.min(distance, distanceToLineSegment(
         point,
         first[index]!,
         first[(index + 1) % first.length]!,

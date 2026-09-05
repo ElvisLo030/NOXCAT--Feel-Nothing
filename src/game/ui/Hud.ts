@@ -136,6 +136,10 @@ export class Hud {
     this.stateLabel.setText(message).setColor(danger ? COMBAT_CSS.danger : PALETTE_CSS.green);
   }
 
+  get stateMessage(): string {
+    return this.stateLabel.text;
+  }
+
   flash(message: string, duration = 1100, danger = false): void {
     this.toast.setText(message).setAlpha(1).setScale(0.82);
     this.toast.setBackgroundColor(danger ? COMBAT_CSS.danger : PALETTE_CSS.green);

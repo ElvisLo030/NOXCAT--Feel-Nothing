@@ -11,7 +11,7 @@ test('round timeout shows the escaped result and both replay choices work', asyn
   await expect(page.getByTestId('result-eyebrow')).toHaveText('TIME UP');
   await expect(page.getByTestId('result-line')).toHaveText('時間到了，Boss 溜走了。');
   await expect(page.getByTestId('result-line')).not.toHaveText('你終於交出了真正的最終版。');
-  await expect(page.locator('[data-stat="time"]')).toHaveText('180.0 秒');
+  await expect(page.locator('[data-stat="time"]')).toHaveText('90.0 秒');
   const retry = page.getByTestId('retry');
   const changeAnnoyance = page.getByTestId('change-annoyance');
   await expect(retry).toBeVisible();

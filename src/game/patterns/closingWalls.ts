@@ -22,7 +22,7 @@ const WALL_PROJECTILE_RADIUS = 27;
 const WALL_EXCLUSION_FROM_GAP = CLOSING_WALL_SAFE_GAP_HALF_HEIGHT
   + WALL_PROJECTILE_RADIUS
   + PLAYER_HIT_RADIUS
-  + 4;
+  + 30;
 const WALL_NEAR_LEFT_X = 145;
 const WALL_NEAR_RIGHT_X = 395;
 
@@ -48,7 +48,7 @@ export function planClosingWalls(
   gapY: number,
   gapTravel = 0,
 ): ClosingWallsPlan {
-  const speed = (150 + intensity * 25) * speedScale;
+  const speed = (180 + intensity * 20) * speedScale;
   // 以缺口向外排列，避免縮小移動區後只剩上方文件列。
   // 加上整波位移量，確保舊文件還在場上時也不會穿過新的缺口。
   const clearance = WALL_EXCLUSION_FROM_GAP + gapTravel + rng.range(0, 4);
@@ -74,7 +74,7 @@ export function planClosingWalls(
             x: fromLeft ? WALL_NEAR_LEFT_X : WALL_NEAR_RIGHT_X,
             y: rowY,
           },
-          perspectiveDurationMs: 1_400,
+          perspectiveDurationMs: Math.max(1_100, Math.round(1_550 / Math.max(0.1, speedScale))),
         });
       }
     }
@@ -106,15 +106,16 @@ export function planClosingWallWave(
   durationMs: number,
 ): ClosingWallWavePlan {
   const maximumGapY = PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
-  const clampedStart = clamp(startGapY, PLAYER_MIN_Y, maximumGapY);
+  const minimumGapY = PLAYER_MIN_Y + CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
+  const clampedStart = clamp(startGapY, minimumGapY, maximumGapY);
   const direction = rng.int(0, 1) === 0 ? -1 : 1;
   // 下方移動區較矮，整波只移動其高度的 10%，保留重疊文件之間的通路。
   const travel = Math.min(44 + intensity * 10, (PLAYER_MAX_Y - PLAYER_MIN_Y) * 0.1);
-  const endGapY = clamp(clampedStart + direction * travel, PLAYER_MIN_Y, maximumGapY);
+  const endGapY = clamp(clampedStart + direction * travel, minimumGapY, maximumGapY);
   const formationCount = intensity === 1 ? 3 : 4;
-  // Leave enough time for the final 1.4 s perspective pass to reach the near
-  // plane before AttackDirector begins recovery and clears stragglers.
-  const lastEmissionMs = Math.max(0, durationMs - 1_600);
+  // 減速時也按實際接近時間預留尾段，避免最後一層尚未進場就被收尾。
+  const tailMs = Math.max(1_600, Math.round(1_550 / Math.max(0.1, speedScale)) + 50);
+  const lastEmissionMs = Math.max(0, durationMs - tailMs);
   const formations = Array.from({ length: formationCount }, (_, index) => {
     const progress = formationCount <= 1 ? 1 : index / (formationCount - 1);
     const easedProgress = progress * progress * (3 - 2 * progress);

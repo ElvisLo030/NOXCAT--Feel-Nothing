@@ -3,7 +3,6 @@ import type { AttackStep, PatternId } from '../../ai/bossSchema';
 import { SeededRng } from '../../utils/rng';
 import { shuffleAttackRound } from '../attackSequence';
 import type { Noxcat } from '../entities/Noxcat';
-import { PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import {
   CLOSING_WALL_SAFE_GAP_HALF_HEIGHT,
   runClosingWalls,
@@ -12,7 +11,7 @@ import {
   commentCrossfireLayout,
   runCommentCrossfire,
 } from '../patterns/commentCrossfire';
-import { runDeadlineBeam } from '../patterns/deadlineBeam';
+import { planDeadlineBeams, runDeadlineBeam, type BeamLayout } from '../patterns/deadlineBeam';
 import {
   PAPER_SAFE_LANE_HALF_WIDTH,
   runPaperRain,
@@ -37,7 +36,8 @@ import {
 import {
   clamp,
   clampPlayerPosition,
-  moveTowards,
+  reachableLane,
+  reachableSafeSpot,
   type PlayerPosition,
 } from '../patterns/fairness';
 import type {
@@ -98,6 +98,13 @@ export const ATTACK_MIN_ACTIVE_MS: Readonly<Record<PatternId, number>> = {
   alternating_zipper: 2_800,
 };
 
+// 加速有下限，保留可辨識節拍、追蹤停止時間與反彈操作窗。
+const ATTACK_ACTIVE_FLOOR_MS: Readonly<Record<PatternId, number>> = {
+  paper_rain: 2_800, top_downpour: 2_600, pulse_barrage: 3_100,
+  alternating_zipper: 3_200, comment_crossfire: 1_900, closing_walls: 2_600,
+  revision_homing: 3_300, returnable_burst: 3_400, deadline_beam: 520,
+};
+
 export interface AttackDirectorHooks {
   scene: Phaser.Scene;
   player: Noxcat;
@@ -137,7 +144,8 @@ export class AttackDirector {
   private pulseBarrageSafeLane = 270;
   private alternatingZipperSafeLane = 270;
   private wallSafeGap = 650;
-  private deadlineBeamY = 650;
+  private deadlineBeams: readonly BeamLayout[] = [];
+  private deadlineSafeSpot?: SafeSpotHint;
   private activePattern?: AttackPatternHandle;
   private pacing: PacingScale | null = null;
 
@@ -165,12 +173,17 @@ export class AttackDirector {
   get currentSafeLane(): SafeLaneHint | undefined {
     switch (this.currentPattern) {
       case 'paper_rain':
-        return { axis: 'vertical', center: this.paperSafeLane, halfWidth: PAPER_SAFE_LANE_HALF_WIDTH };
+        return {
+          axis: 'vertical',
+          center: this.paperSafeLane,
+          halfWidth: PAPER_SAFE_LANE_HALF_WIDTH,
+          projection: 'screen',
+        };
 
       case 'closing_walls':
         return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT, projection: 'screen' };
       case 'returnable_burst':
-        return { axis: 'vertical', center: this.returnableSafeLane, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH };
+        return { axis: 'vertical', center: this.returnableSafeLane, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH, projection: 'screen' };
       case 'top_downpour':
         return {
           axis: 'vertical',
@@ -179,15 +192,21 @@ export class AttackDirector {
           projection: 'screen',
         };
       case 'pulse_barrage':
-        return { axis: 'vertical', center: this.pulseBarrageSafeLane, halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH };
+        return {
+          axis: 'vertical',
+          center: this.pulseBarrageSafeLane,
+          halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH,
+          projection: 'screen',
+        };
       case 'alternating_zipper':
-        return { axis: 'vertical', center: this.alternatingZipperSafeLane, halfWidth: ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH };
+        return { axis: 'vertical', center: this.alternatingZipperSafeLane, halfWidth: ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH, projection: 'screen' };
       default:
         return undefined;
     }
   }
 
   get currentSafeSpot(): SafeSpotHint | undefined {
+    if (this.currentPattern === 'deadline_beam') return this.deadlineSafeSpot;
     return this.currentPattern === 'comment_crossfire' ? this.commentLayout?.safeSpot : undefined;
   }
 
@@ -196,11 +215,12 @@ export class AttackDirector {
       this.currentPattern,
       this.currentSafeLane,
       this.playerPosition(),
-      this.deadlineBeamY,
+      this.deadlineBeams,
     );
     if (this.currentPattern === 'comment_crossfire' && this.commentLayout) {
       zones.push(...this.commentLayout.rays.map((ray) => ray.warning), this.commentLayout.safeSpot);
     }
+    if (this.currentPattern === 'deadline_beam' && this.deadlineSafeSpot) zones.push(this.deadlineSafeSpot);
     return zones;
   }
 
@@ -251,7 +271,7 @@ export class AttackDirector {
         this.phaseDuration(step.pattern, step.durationMs, this.wavePhase) - this.phaseElapsedMs,
       );
       const minActiveRemainingMs = this.wavePhase === 'ACTIVE'
-        ? Math.max(0, ATTACK_MIN_ACTIVE_MS[step.pattern] - this.phaseElapsedMs)
+        ? Math.max(0, this.minActiveMs(step.pattern) - this.phaseElapsedMs)
         : Number.POSITIVE_INFINITY;
       const advanceMs = Math.min(
         remainingMs,
@@ -281,38 +301,27 @@ export class AttackDirector {
     this.wavePhase = 'TELEGRAPH';
     const player = this.playerPosition();
     if (this.currentPattern === 'paper_rain') {
-      const candidate = this.rng.range(90, 450);
-      this.paperSafeLane = player
-        ? moveTowards(candidate, clamp(player.x, 90, 450), 54)
-        : candidate;
+      this.paperSafeLane = reachableLane(this.rng, 'x', player, PAPER_SAFE_LANE_HALF_WIDTH);
     } else if (this.currentPattern === 'comment_crossfire') {
       // 隨機組合在預警開始時決定，發射時沿用，避免箭頭與實際方向不符。
-      this.commentLayout = commentCrossfireLayout(this.rng, this.roundAttacks[this.stepIndex]!.intensity);
+      this.commentLayout = commentCrossfireLayout(this.rng, this.roundAttacks[this.stepIndex]!.intensity, player);
     } else if (this.currentPattern === 'closing_walls') {
-      const maximumGapY = PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
-      const candidate = this.rng.range(PLAYER_MIN_Y, maximumGapY);
-      this.wallSafeGap = player
-        ? moveTowards(candidate, clamp(player.y, PLAYER_MIN_Y, maximumGapY), 42)
-        : candidate;
+      this.wallSafeGap = reachableLane(this.rng, 'y', player, CLOSING_WALL_SAFE_GAP_HALF_HEIGHT);
     } else if (this.currentPattern === 'returnable_burst') {
       this.returnableSafeLane = clamp(player?.x ?? this.rng.range(150, 390), 70, 470);
     } else if (this.currentPattern === 'top_downpour') {
-      const candidate = this.rng.range(100, 440);
-      this.topDownpourSafeLane = player
-        ? moveTowards(candidate, clamp(player.x, 100, 440), 64)
-        : candidate;
+      this.topDownpourSafeLane = reachableLane(this.rng, 'x', player, TOP_DOWNPOUR_SAFE_LANE_HALF_WIDTH);
     } else if (this.currentPattern === 'pulse_barrage') {
-      const candidate = this.rng.range(100, 440);
-      this.pulseBarrageSafeLane = player
-        ? moveTowards(candidate, clamp(player.x, 100, 440), 58)
-        : candidate;
+      this.pulseBarrageSafeLane = reachableLane(this.rng, 'x', player, PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH);
     } else if (this.currentPattern === 'alternating_zipper') {
-      const candidate = this.rng.range(100, 440);
-      this.alternatingZipperSafeLane = player
-        ? moveTowards(candidate, clamp(player.x, 100, 440), 58)
-        : candidate;
+      this.alternatingZipperSafeLane = reachableLane(this.rng, 'x', player, ALTERNATING_ZIPPER_SAFE_LANE_HALF_WIDTH);
     } else if (this.currentPattern === 'deadline_beam') {
-      this.deadlineBeamY = this.rng.range(PLAYER_MIN_Y + 24, PLAYER_MAX_Y - 24);
+      this.deadlineSafeSpot = reachableSafeSpot(this.rng, player);
+      this.deadlineBeams = planDeadlineBeams(
+        this.rng,
+        this.roundAttacks[this.stepIndex]?.intensity ?? 1,
+        this.deadlineSafeSpot,
+      );
     }
     this.hooks.onPatternChanged?.(this.currentPattern);
     this.hooks.onWavePhaseChanged?.(
@@ -347,7 +356,14 @@ export class AttackDirector {
     if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * recoveryScale));
     const scaledTelegraph = Math.max(500, Math.round(telegraph * telegraphScale));
     const scaledRecovery = recovery * recoveryScale;
-    return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
+    const activeBudget = Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
+    const cadence = isBeam ? 1 : (this.pacing?.speedScale ?? 1);
+    // 最後一命會再減速 13%，尾張文件仍需完整走完接近路徑。
+    const slowestClock = isBeam ? 1 : Math.min(1, (this.pacing?.speedScale ?? 1) * 0.87);
+    return Math.max(
+      this.minActiveMs(pattern), Math.ceil(ATTACK_ACTIVE_FLOOR_MS[pattern] / slowestClock),
+      Math.round(activeBudget / Math.max(1, cadence)),
+    );
   }
 
   private advanceWavePhase(
@@ -403,14 +419,14 @@ export class AttackDirector {
     switch (pattern) {
       case 'paper_rain': {
         return runPaperRain(
-          { ...context, speedScale: context.speedScale * 1.15 },
+          context,
           this.paperSafeLane,
         );
       }
       case 'comment_crossfire':
         return runCommentCrossfire(context, this.commentLayout);
       case 'deadline_beam':
-        return runDeadlineBeam(context, this.deadlineBeamY);
+        return runDeadlineBeam(context, this.deadlineBeams);
       case 'closing_walls': {
         return runClosingWalls(
           context,
@@ -449,9 +465,14 @@ export class AttackDirector {
     this.activePattern = undefined;
   }
 
+  private minActiveMs(pattern: PatternId): number {
+    const speed = this.pacing?.speedScale ?? 1;
+    return Math.max(1, Math.round(ATTACK_MIN_ACTIVE_MS[pattern] / Math.max(1, speed)));
+  }
+
   private canEnterEarlyRecovery(pattern: PatternId): boolean {
     if (this.wavePhase !== 'ACTIVE'
-      || this.phaseElapsedMs < ATTACK_MIN_ACTIVE_MS[pattern]
+      || this.phaseElapsedMs < this.minActiveMs(pattern)
       || !this.activePattern?.finished) {
       return false;
     }
