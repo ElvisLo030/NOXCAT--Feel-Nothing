@@ -34,7 +34,7 @@ export function planPaperRain(
       // Drift away from the reserved lane so it remains safe for the volley's
       // whole descent instead of only at the spawn frame.
       vx: side * rng.range(4, 30) * speedScale,
-      vy: rng.range(180, 235 + intensity * 34) * speedScale,
+      vy: rng.range(220, 265 + intensity * 38) * speedScale,
       radius: PAPER_PROJECTILE_RADIUS,
       rotationSpeed: rng.range(-1.3, 1.3),
     };

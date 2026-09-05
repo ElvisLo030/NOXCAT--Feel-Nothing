@@ -23,6 +23,7 @@ import { Hud } from '../ui/Hud';
 import { AttackDirector, type SafeLaneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import { ProjectileSystem } from '../systems/ProjectileSystem';
+import { computePacing, type PacingScale } from '../systems/PacingDirector';
 import {
   clampToLaunchBoundary,
   crossedLaunchBoundary,
@@ -74,6 +75,7 @@ export class BattleScene extends Phaser.Scene {
   private combatTimeScale = 1;
   private presentationTimeMs = 0;
   private readonly awardedBeams = new Set<number>();
+  private currentPacing: PacingScale | null = null;
 
   constructor() {
     super('BattleScene');
@@ -134,6 +136,16 @@ export class BattleScene extends Phaser.Scene {
 
     if (this.session.state !== BattleState.INTRO && !isTerminalBattleState(this.session.state)) {
       this.session.advanceTime(delta);
+      this.currentPacing = computePacing({
+        elapsedMs: this.session.elapsedMs,
+        remainingMs: this.session.remainingMs,
+        energy: this.session.energy,
+        bossHp: this.session.bossHp,
+        mainHits: this.session.mainAttackHits,
+        grazeCount: this.session.grazeCount,
+        lives: this.session.lives,
+      });
+      this.director.setPacingScale(this.currentPacing);
       this.updateVulnerabilityWindow(delta);
       this.updateNeutral(face, dt);
       this.handleCollisions(delta);
@@ -156,6 +168,7 @@ export class BattleScene extends Phaser.Scene {
       this.faceSnapshot,
       this.projectiles,
       this.director.currentSafeLane,
+      this.currentPacing,
     );
     this.adjustQuality(delta);
 
@@ -426,8 +439,10 @@ export class BattleScene extends Phaser.Scene {
     this.hitReliefTimer = undefined;
     this.director.cancelCurrent();
     this.boss.setWeakPointVisible(true);
-    this.vulnerableRemainingMs = VULNERABLE_WINDOW_MS;
-    this.setCombatTimeScale(0.55);
+    const scale = this.currentPacing?.vulnerableScale ?? 1;
+    this.vulnerableRemainingMs = Math.max(1, Math.round(VULNERABLE_WINDOW_MS * scale));
+    const combatScale = this.currentPacing?.combatScale ?? 0.55;
+    this.setCombatTimeScale(combatScale);
     this.audio.play('full');
     this.hud.setStateMessage('DO EVERYTHING');
     this.showBossLine(true);
@@ -707,6 +722,7 @@ export class BattleScene extends Phaser.Scene {
           combatTimeScale: this.combatTimeScale,
           vulnerableRemainingMs: this.vulnerableRemainingMs,
           weakPointTweenCount: this.boss.weakPointTweenCount,
+          pacing: this.currentPacing,
         };
       },
       projectileSnapshot: () => this.projectiles.activeProjectiles().map((projectile) => ({

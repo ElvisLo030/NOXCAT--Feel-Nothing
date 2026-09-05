@@ -4,6 +4,7 @@ import type { BattleFaceSnapshot } from '../runtime';
 import type { Noxcat } from '../entities/Noxcat';
 import type { GameSession } from '../../state/GameSession';
 import type { SafeLaneHint } from '../systems/AttackDirector';
+import type { PacingScale } from '../systems/PacingDirector';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
 
 export interface DebugActions {
@@ -74,6 +75,7 @@ export class DebugOverlay {
     face: BattleFaceSnapshot | null,
     projectiles: ProjectileSystem,
     safeLane?: SafeLaneHint,
+    pacing?: PacingScale | null,
   ): void {
     const baseline = face?.baseline;
     const rawNeutral = face?.rawNeutral;
@@ -85,6 +87,7 @@ export class DebugOverlay {
       `NEU RAW ${rawNeutral == null ? '--' : rawNeutral.toFixed(0)} | EMA ${smoothedNeutral == null ? '--' : smoothedNeutral.toFixed(1)}`,
       `BASE ${baseline == null ? '--' : `${baseline.smile.toFixed(2)}/${baseline.jawOpen.toFixed(2)}/${baseline.browUp.toFixed(2)}/${baseline.eyeWide.toFixed(2)}`}`,
       `FACE ${face == null ? '--' : `${face.mode} ${face.inferenceMs.toFixed(1)}ms`} | ${face?.faceFound ? 'FOUND' : 'LOST'}`,
+      `PACE U${pacing == null ? '--' : pacing.urgency.toFixed(2)} R${pacing == null ? '--' : pacing.relief.toFixed(2)} SPD ${pacing == null ? '--' : pacing.speedScale.toFixed(2)} TEL ${pacing == null ? '--' : pacing.telegraphScale.toFixed(2)} REC ${pacing == null ? '--' : pacing.recoveryScale.toFixed(2)}`,
       `SEED ${this.dna.seed}`
     ]);
     this.hitboxGraphics.clear();
