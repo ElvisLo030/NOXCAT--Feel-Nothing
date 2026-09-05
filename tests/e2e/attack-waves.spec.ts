@@ -1,8 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { FALLBACK_BOSS } from '../../src/ai/fallbackBoss';
-import { PLAYER_MIN_Y, PLAYER_MAX_Y, PLAYER_MIN_X, PLAYER_MAX_X } from '../../src/game/constants';
+import {
+  FINGER_OFFSET_Y,
+  PLAYER_MIN_Y,
+  PLAYER_MAX_Y,
+  PLAYER_MIN_X,
+  PLAYER_MAX_X,
+} from '../../src/game/constants';
 import { clipLineToBounds } from '../../src/game/systems/LineGeometry';
-import { verticalSafeWedgeBoundsAtY } from '../../src/game/systems/DangerTelegraph';
 
 for (const y of [PLAYER_MIN_Y, 810, PLAYER_MAX_Y]) {
   test(`pulse barrage leaves the visible safe centre clear at y=${y}`, async ({ page }) => {
@@ -21,8 +26,7 @@ for (const y of [PLAYER_MIN_Y, 810, PLAYER_MAX_Y]) {
     await page.getByTestId('skip-camera').click();
     await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
     const lane = await page.evaluate(() => window.__NOXCAT_TEST__!.waveSnapshot().safeLane!);
-    const wedge = verticalSafeWedgeBoundsAtY(lane, y);
-    await moveToBattlePosition(page, (wedge.left + wedge.right) / 2, y);
+    await moveToBattlePosition(page, lane.center, y);
     await page.waitForFunction(() => window.__NOXCAT_TEST__!.projectileSnapshot().some((card) => (
       card.isDamage && card.collisionActive
     )));
@@ -164,8 +168,8 @@ async function moveToBattlePosition(page: Page, x: number, y: number): Promise<v
     x: box.x + (worldX - viewport.left) * box.width / viewport.width,
     y: box.y + (worldY - viewport.top) * box.height / viewport.height,
   });
-  const start = screen(cat.x, cat.y);
-  const target = screen(x, y);
+  const start = screen(cat.x, cat.y + FINGER_OFFSET_Y);
+  const target = screen(x, y + FINGER_OFFSET_Y);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 5 });

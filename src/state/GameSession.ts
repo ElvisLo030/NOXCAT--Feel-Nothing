@@ -349,11 +349,20 @@ export class GameSession {
     this.neutralPeak = this.neutralPeak === null ? safeScore : Math.max(this.neutralPeak, safeScore);
   }
 
-  advanceTime(deltaMs: number): void {
+  get attackClockPaused(): boolean {
+    return this.currentState === BattleState.VULNERABLE
+      || this.currentState === BattleState.AIMING
+      || this.currentState === BattleState.LAUNCHED;
+  }
+
+  advanceTime(deltaMs: number, options: { ignoreAttackPause?: boolean } = {}): void {
     if (!Number.isFinite(deltaMs) || deltaMs < 0) {
       throw new RangeError('deltaMs must be a finite, non-negative number');
     }
     if (isTerminalBattleState(this.currentState)) {
+      return;
+    }
+    if (this.attackClockPaused && options.ignoreAttackPause !== true) {
       return;
     }
 

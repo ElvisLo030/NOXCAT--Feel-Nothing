@@ -5,6 +5,7 @@ import {
   compoundPolygonSeparation,
   interpolateThresholdCrossing,
   polygonSeparation,
+  segmentDistance,
   sweptAxisDistance,
   sweptPointDistance,
 } from '../src/game/systems/CollisionMath';
@@ -93,6 +94,18 @@ describe('swept collision geometry', () => {
   it('detects a player crossing a horizontal beam between sampled frames', () => {
     expect(sweptAxisDistance(580, 660, 620)).toBe(0);
     expect(sweptAxisDistance(580, 600, 620)).toBe(20);
+    expect(segmentDistance(
+      { x: 270, y: 500 },
+      { x: 270, y: 700 },
+      { x: 0, y: 612 },
+      { x: 540, y: 612 },
+    )).toBe(0);
+    expect(segmentDistance(
+      { x: 40, y: 500 },
+      { x: 40, y: 520 },
+      { x: 270, y: 430 },
+      { x: 270, y: 884 },
+    )).toBeGreaterThan(200);
   });
 
   it('starts a near-plane overshoot sweep at the exact visible handoff', () => {

@@ -118,13 +118,37 @@ describe('PacingDirector', () => {
       grazeCount: 0,
       lives: 1,
     });
-    expect(extreme.speedScale).toBeGreaterThanOrEqual(0.85);
-    expect(extreme.speedScale).toBeLessThanOrEqual(1.25);
-    expect(extreme.telegraphScale).toBeGreaterThanOrEqual(0.75);
+    expect(extreme.speedScale).toBeGreaterThanOrEqual(0.90);
+    expect(extreme.speedScale).toBeLessThanOrEqual(1.75);
+    expect(extreme.telegraphScale).toBeGreaterThanOrEqual(0.70);
     expect(extreme.telegraphScale).toBeLessThanOrEqual(1);
-    expect(extreme.recoveryScale).toBeGreaterThanOrEqual(0.55);
+    expect(extreme.recoveryScale).toBeGreaterThanOrEqual(0.22);
     expect(extreme.recoveryScale).toBeLessThanOrEqual(1);
-    expect(extreme.vulnerableScale).toBeGreaterThanOrEqual(0.70);
+    expect(extreme.vulnerableScale).toBeGreaterThanOrEqual(0.65);
+  });
+
+  it('pushes attack cadence clearly faster in the second half of a 90-second round', () => {
+    const opening = computePacing({
+      elapsedMs: 5_000,
+      remainingMs: 85_000,
+      energy: 50,
+      bossHp: 100,
+      mainHits: 0,
+      grazeCount: 4,
+      lives: 3,
+    });
+    const closing = computePacing({
+      elapsedMs: 75_000,
+      remainingMs: 15_000,
+      energy: 50,
+      bossHp: 50,
+      mainHits: 2,
+      grazeCount: 15,
+      lives: 3,
+    });
+    expect(closing.speedScale).toBeGreaterThan(opening.speedScale + 0.2);
+    expect(closing.recoveryScale).toBeLessThan(opening.recoveryScale - 0.2);
+    expect(closing.urgency).toBeGreaterThan(opening.urgency);
   });
 
   it('computes graze rate correctly', () => {

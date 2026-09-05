@@ -1,10 +1,11 @@
 import type { SeededRng } from '../../utils/rng';
-import { PLAYER_HIT_RADIUS } from '../constants';
+import { PLAYER_HIT_RADIUS, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import type { ProjectileConfig } from '../entities/Projectile';
 import {
   clamp,
   clampPlayerPosition,
   evenlySpaced,
+  FALLING_ATTACK_ORIGIN_Y,
   randomSignedYawOffset,
   type PlayerPosition,
 } from './fairness';
@@ -15,7 +16,6 @@ import {
   type AttackPatternContext,
   type AttackPatternHandle,
 } from './types';
-import { clearVerticalSafeWedgeForTunnelTarget } from '../systems/DangerTelegraph';
 
 export const RETURNABLE_SAFE_LANE_HALF_WIDTH = 76;
 export const RETURNABLE_WARNING_Y = 155;
@@ -95,15 +95,7 @@ export function planReturnableBurst(
     const vy = rng.range(210, 290 + intensity * 28) * speedScale;
     const perspectiveY = 820;
     const perspectiveTime = (perspectiveY - y) / Math.max(1, vy);
-    const perspectiveTarget = clearVerticalSafeWedgeForTunnelTarget(
-      {
-        x: Math.min(504, Math.max(36, x + vx * perspectiveTime)),
-        y: perspectiveY,
-      },
-      { center: safeLaneX, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH },
-      side,
-      PAPER_PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
-    );
+    const perspectiveTarget = { x: Math.min(504, Math.max(36, x + vx * perspectiveTime)), y: perspectiveY };
     return {
       kind: 'paper',
       x,
@@ -112,6 +104,7 @@ export function planReturnableBurst(
       vy,
       radius: PAPER_PROJECTILE_RADIUS,
       yawOffset: randomSignedYawOffset(rng, 8, 22),
+      perspectiveOrigin: { x, y: FALLING_ATTACK_ORIGIN_Y },
       perspectiveTarget: {
         x: clamp(perspectiveTarget.x, 36, 504),
         y: perspectiveY,
@@ -122,15 +115,10 @@ export function planReturnableBurst(
   });
   const returnableVx = interactionSide * rng.range(4, 12) * speedScale;
   const returnableVy = rng.range(235, 270 + intensity * 18) * speedScale;
-  const returnableTarget = clearVerticalSafeWedgeForTunnelTarget(
-    {
-      x: clamp(interactionLaneX + interactionSide * 10, 36, 504),
-      y: 820,
-    },
-    { center: safeLaneX, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH },
-    interactionSide,
-    RETURNABLE_PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
-  );
+  const returnableTarget = {
+    x: interactionLaneX,
+    y: clamp(player?.y ?? 720, PLAYER_MIN_Y + 40, PLAYER_MAX_Y - 40),
+  };
   const returnableProjectiles: readonly ProjectileConfig[] = [{
     kind: 'returnable',
     x: interactionLaneX,
@@ -139,10 +127,8 @@ export function planReturnableBurst(
     vy: returnableVy,
     radius: RETURNABLE_PROJECTILE_RADIUS,
     yawOffset: randomSignedYawOffset(rng, 16, 30),
-    perspectiveTarget: {
-      x: clamp(returnableTarget.x, 36, 504),
-      y: 820,
-    },
+    perspectiveOrigin: { x: interactionLaneX, y: FALLING_ATTACK_ORIGIN_Y },
+    perspectiveTarget: returnableTarget,
     perspectiveDurationMs: 1_450 + Math.round(rng.range(-40, 40)),
   }];
   const returnableIndex = openingProjectiles.length;
