@@ -86,14 +86,14 @@ describe('boss client trust boundary', () => {
     });
   });
 
-  it('aborts a slow request at 6 seconds and returns fallback', async () => {
+  it('aborts a slow request at 10 seconds and returns fallback', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
     })));
 
     const resultPromise = fetchBossDNA('慢吞吞 Boss');
-    await vi.advanceTimersByTimeAsync(6_001);
+    await vi.advanceTimersByTimeAsync(10_001);
     await expect(resultPromise).resolves.toMatchObject({ source: 'fallback' });
   });
 });

@@ -1,13 +1,15 @@
 import type Phaser from 'phaser';
 import type { AttackStep, PatternId } from '../../ai/bossSchema';
-import type { SeededRng } from '../../utils/rng';
+import { SeededRng } from '../../utils/rng';
+import { shuffleAttackRound } from '../attackSequence';
 import type { Noxcat } from '../entities/Noxcat';
+import { PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import {
   CLOSING_WALL_SAFE_GAP_HALF_HEIGHT,
   runClosingWalls,
 } from '../patterns/closingWalls';
 import {
-  COMMENT_SAFE_LANE_HALF_HEIGHT,
+  commentCrossfireLayout,
   runCommentCrossfire,
 } from '../patterns/commentCrossfire';
 import { runDeadlineBeam } from '../patterns/deadlineBeam';
@@ -48,6 +50,7 @@ import {
   dangerZonesForPattern,
   type DangerZoneHint,
   type SafeLaneHint,
+  type SafeSpotHint,
 } from './DangerTelegraph';
 
 export type WavePhase = 'TELEGRAPH' | 'ACTIVE' | 'RECOVERY';
@@ -100,6 +103,8 @@ export interface AttackDirectorHooks {
   player: Noxcat;
   onPatternChanged?: (pattern: PatternId) => void;
   onReturnableTutorial?: () => void;
+  onReturnableWindow?: () => void;
+  onDangerZonesChanged?: (zones: readonly DangerZoneHint[]) => void;
   onWavePhaseChanged?: (
     phase: WavePhase,
     pattern: PatternId,
@@ -112,17 +117,21 @@ export interface AttackDirectorHooks {
 
 export interface AttackSequenceConfig {
   readonly attacks: readonly AttackStep[];
+  readonly shuffleSeed?: number;
+  readonly commentLines?: readonly string[];
 }
 
 export class AttackDirector {
   private stepIndex = 0;
+  private roundAttacks: readonly AttackStep[];
+  private readonly orderRng?: SeededRng;
   private phaseElapsedMs = 0;
   private wavePhase: WavePhase = 'TELEGRAPH';
   private volley = 0;
   private running = false;
   private returnableTutorialShown = false;
   private paperSafeLane = 270;
-  private commentSafeLane = 650;
+  private commentLayout?: ReturnType<typeof commentCrossfireLayout>;
   private returnableSafeLane = 270;
   private topDownpourSafeLane = 270;
   private pulseBarrageSafeLane = 270;
@@ -137,10 +146,16 @@ export class AttackDirector {
     private readonly rng: SeededRng,
     private readonly projectiles: ProjectileSystem,
     private readonly hooks: AttackDirectorHooks = {} as AttackDirectorHooks,
-  ) {}
+  ) {
+    // 選招與彈幕布局各用獨立 RNG，避免玩家移動或布局抽樣影響下一輪順序。
+    this.orderRng = dna.shuffleSeed === undefined ? undefined : new SeededRng(dna.shuffleSeed);
+    this.roundAttacks = this.orderRng
+      ? shuffleAttackRound(dna.attacks, this.orderRng)
+      : dna.attacks;
+  }
 
   get currentPattern(): PatternId {
-    return this.dna.attacks[this.stepIndex]?.pattern ?? 'paper_rain';
+    return this.roundAttacks[this.stepIndex]?.pattern ?? 'paper_rain';
   }
 
   get currentPhase(): WavePhase {
@@ -151,10 +166,9 @@ export class AttackDirector {
     switch (this.currentPattern) {
       case 'paper_rain':
         return { axis: 'vertical', center: this.paperSafeLane, halfWidth: PAPER_SAFE_LANE_HALF_WIDTH };
-      case 'comment_crossfire':
-        return { axis: 'horizontal', center: this.commentSafeLane, halfWidth: COMMENT_SAFE_LANE_HALF_HEIGHT };
+
       case 'closing_walls':
-        return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT };
+        return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT, projection: 'screen' };
       case 'returnable_burst':
         return { axis: 'vertical', center: this.returnableSafeLane, halfWidth: RETURNABLE_SAFE_LANE_HALF_WIDTH };
       case 'top_downpour':
@@ -173,13 +187,21 @@ export class AttackDirector {
     }
   }
 
+  get currentSafeSpot(): SafeSpotHint | undefined {
+    return this.currentPattern === 'comment_crossfire' ? this.commentLayout?.safeSpot : undefined;
+  }
+
   get currentDangerZones(): readonly DangerZoneHint[] {
-    return dangerZonesForPattern(
+    const zones = dangerZonesForPattern(
       this.currentPattern,
       this.currentSafeLane,
       this.playerPosition(),
       this.deadlineBeamY,
     );
+    if (this.currentPattern === 'comment_crossfire' && this.commentLayout) {
+      zones.push(...this.commentLayout.rays.map((ray) => ray.warning), this.commentLayout.safeSpot);
+    }
+    return zones;
   }
 
   start(): void {
@@ -217,7 +239,7 @@ export class AttackDirector {
     // BattleScene normally supplies <=50 ms. The loop also keeps phase timing
     // deterministic if a test or recovering browser supplies one long frame.
     while (remainingMs > 0 && this.running) {
-      const step = this.dna.attacks[this.stepIndex];
+      const step = this.roundAttacks[this.stepIndex];
       if (!step) return;
       if (this.canEnterEarlyRecovery(step.pattern)) {
         this.advanceWavePhase(step.pattern, step.intensity, playerLives);
@@ -264,11 +286,13 @@ export class AttackDirector {
         ? moveTowards(candidate, clamp(player.x, 90, 450), 54)
         : candidate;
     } else if (this.currentPattern === 'comment_crossfire') {
-      this.commentSafeLane = clamp(player?.y ?? this.rng.range(520, 790), 500, 814);
+      // 隨機組合在預警開始時決定，發射時沿用，避免箭頭與實際方向不符。
+      this.commentLayout = commentCrossfireLayout(this.rng, this.roundAttacks[this.stepIndex]!.intensity);
     } else if (this.currentPattern === 'closing_walls') {
-      const candidate = this.rng.range(535, 755);
+      const maximumGapY = PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
+      const candidate = this.rng.range(PLAYER_MIN_Y, maximumGapY);
       this.wallSafeGap = player
-        ? moveTowards(candidate, clamp(player.y, 535, 805), 42)
+        ? moveTowards(candidate, clamp(player.y, PLAYER_MIN_Y, maximumGapY), 42)
         : candidate;
     } else if (this.currentPattern === 'returnable_burst') {
       this.returnableSafeLane = clamp(player?.x ?? this.rng.range(150, 390), 70, 470);
@@ -288,7 +312,7 @@ export class AttackDirector {
         ? moveTowards(candidate, clamp(player.x, 100, 440), 58)
         : candidate;
     } else if (this.currentPattern === 'deadline_beam') {
-      this.deadlineBeamY = this.rng.range(500, 790);
+      this.deadlineBeamY = this.rng.range(PLAYER_MIN_Y + 24, PLAYER_MAX_Y - 24);
     }
     this.hooks.onPatternChanged?.(this.currentPattern);
     this.hooks.onWavePhaseChanged?.(
@@ -302,7 +326,14 @@ export class AttackDirector {
 
   private advanceStep(): void {
     this.cancelPatternTimeline();
-    this.stepIndex = (this.stepIndex + 1) % this.dna.attacks.length;
+    const previousPattern = this.currentPattern;
+    this.stepIndex += 1;
+    if (this.stepIndex >= this.roundAttacks.length) {
+      this.roundAttacks = this.orderRng
+        ? shuffleAttackRound(this.dna.attacks, this.orderRng, previousPattern)
+        : this.dna.attacks;
+      this.stepIndex = 0;
+    }
     this.beginStep();
   }
 
@@ -312,9 +343,9 @@ export class AttackDirector {
     const isBeam = pattern === 'deadline_beam';
     const telegraphScale = isBeam ? 1 : (this.pacing?.telegraphScale ?? 1);
     const recoveryScale = isBeam ? 1 : (this.pacing?.recoveryScale ?? 1);
-    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * telegraphScale));
+    if (phase === 'TELEGRAPH') return Math.max(500, Math.round(telegraph * telegraphScale));
     if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * recoveryScale));
-    const scaledTelegraph = telegraph * telegraphScale;
+    const scaledTelegraph = Math.max(500, Math.round(telegraph * telegraphScale));
     const scaledRecovery = recovery * recoveryScale;
     return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
   }
@@ -357,7 +388,7 @@ export class AttackDirector {
     intensity: 1 | 2 | 3,
     speedScale: number,
   ): AttackPatternHandle {
-    const step = this.dna.attacks[this.stepIndex];
+    const step = this.roundAttacks[this.stepIndex];
     const context: AttackPatternContext = {
       scene: this.hooks.scene,
       rng: this.rng,
@@ -367,6 +398,7 @@ export class AttackDirector {
       projectiles: this.projectiles,
       speedScale,
       waveIndex: this.volley,
+      commentLines: this.dna.commentLines,
     };
     switch (pattern) {
       case 'paper_rain': {
@@ -376,14 +408,17 @@ export class AttackDirector {
         );
       }
       case 'comment_crossfire':
-        return runCommentCrossfire(context, this.commentSafeLane);
+        return runCommentCrossfire(context, this.commentLayout);
       case 'deadline_beam':
         return runDeadlineBeam(context, this.deadlineBeamY);
       case 'closing_walls': {
         return runClosingWalls(
           context,
           this.wallSafeGap,
-          (safeGapY) => { this.wallSafeGap = safeGapY; },
+          (safeGapY) => {
+            this.wallSafeGap = safeGapY;
+            this.hooks.onDangerZonesChanged?.(this.currentDangerZones);
+          },
         );
       }
       case 'revision_homing':
@@ -393,6 +428,7 @@ export class AttackDirector {
           context,
           this.returnableSafeLane,
           () => {
+            this.hooks.onReturnableWindow?.();
             if (this.returnableTutorialShown) return;
             this.returnableTutorialShown = true;
             this.hooks.onReturnableTutorial?.();

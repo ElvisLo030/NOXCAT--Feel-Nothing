@@ -22,6 +22,8 @@ export interface AttackPatternContext {
   readonly projectiles: ProjectileSystem;
   readonly speedScale: number;
   readonly waveIndex: number;
+  /** BossDNA 專為註解交叉火力產生的短句。 */
+  readonly commentLines?: readonly string[];
 }
 
 /** A live pattern timeline owned and advanced by AttackDirector. */
@@ -36,6 +38,18 @@ export interface AttackPatternHandle {
 export interface ScheduledPatternEvent {
   readonly atMs: number;
   readonly emit: () => void;
+}
+
+/** 保留尾張文件的接近與離場時間；短波次只壓縮發射間隔，不刪掉尾段。 */
+export function fitEmissionTimes(
+  times: readonly number[],
+  durationMs: number,
+  tailMs: number,
+): number[] {
+  const last = Math.max(0, ...times);
+  const available = Math.max(0, durationMs - tailMs);
+  const scale = last > 0 ? Math.min(1, available / last) : 1;
+  return times.map((time) => Math.round(time * scale));
 }
 
 /**

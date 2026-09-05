@@ -1,3 +1,4 @@
+import { clipLineToBounds } from '../src/game/systems/LineGeometry';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +12,25 @@ import {
 import { BOSS_PROJECTILE_ORIGIN } from '../src/game/systems/ProjectileDepth';
 
 describe('danger telegraph geometry', () => {
+  it('clips horizontal, vertical and diagonal cues without reversing their arrow direction', () => {
+    const bounds = { left: 14, right: 526, top: 683, bottom: 896 };
+    for (const direction of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }, { x: 2, y: -1 }]) {
+      const path = clipLineToBounds({ x: 270, y: 810 }, direction, bounds)!;
+      for (const point of [path.entry, path.exit]) {
+        expect(point.x).toBeGreaterThanOrEqual(bounds.left - 1e-7);
+        expect(point.x).toBeLessThanOrEqual(bounds.right + 1e-7);
+        expect(point.y).toBeGreaterThanOrEqual(bounds.top - 1e-7);
+        expect(point.y).toBeLessThanOrEqual(bounds.bottom + 1e-7);
+      }
+      const dx = path.exit.x - path.entry.x;
+      const dy = path.exit.y - path.entry.y;
+      expect(dx * direction.x + dy * direction.y).toBeGreaterThan(0);
+      expect(dx * direction.y - dy * direction.x).toBeCloseTo(0, 8);
+    }
+    expect(clipLineToBounds({ x: 0, y: 600 }, { x: 1, y: 0 }, bounds)).toBeUndefined();
+    expect(clipLineToBounds({ x: 270, y: 810 }, { x: 0, y: 0 }, bounds)).toBeUndefined();
+  });
+
   it('overscans both screen edges so neither side is an implicit safe strip', () => {
     expect(COMBAT_ARENA.x).toBeLessThan(0);
     expect(COMBAT_ARENA.x + COMBAT_ARENA.width).toBeGreaterThan(540);
@@ -49,6 +69,7 @@ describe('danger telegraph geometry', () => {
       y: 590,
       width: COMBAT_ARENA.width,
       height: 44,
+      projection: 'screen',
     }]);
     expect(dangerZonesForPattern('revision_homing', undefined, { x: 270, y: 710 }, 0)).toEqual([{
       kind: 'target',

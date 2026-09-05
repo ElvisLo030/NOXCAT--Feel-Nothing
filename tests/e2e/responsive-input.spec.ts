@@ -11,7 +11,8 @@ test('small phone can reach the primary action without horizontal overflow', asy
   await expect(page.getByRole('textbox', { name: '今天最想打敗的是？' })).toBeVisible();
   await expect(page.locator('#camera-enabled')).toHaveCount(0);
   await expect(page.getByRole('checkbox', { name: '配戴額前護目鏡' })).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: '音效開啟' })).toBeChecked();
+  await expect(page.locator('.css-noxcat')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: '配樂與音效' })).toBeChecked();
   await expectMinimumTargetSize(page, 'button, .accessory-toggle, .sound-row');
 
   const action = page.getByTestId('generate-boss');
@@ -318,7 +319,7 @@ test('releasing outside the canvas ends the active desktop drag', async ({ page 
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas does not have a bounding box');
   const startX = box.x + box.width * 0.5;
-  const pointerY = box.y + box.height * 0.865;
+  const pointerY = box.y + box.height * 0.79;
 
   await page.mouse.move(startX, pointerY);
   await page.mouse.down();

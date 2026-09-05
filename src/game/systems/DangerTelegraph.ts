@@ -1,7 +1,7 @@
 import type { PatternId } from '../../ai/bossSchema';
 import {
   BOSS_PROJECTILE_ORIGIN,
-  PROJECTILE_CONTACT_DEPTH,
+  calculateTunnelContactDepth,
   projectileDepthExpansion,
   projectTunnelTargetAtDepth,
   type ProjectileDepthPoint,
@@ -41,7 +41,21 @@ export interface DangerTargetHint {
   radius: number;
 }
 
-export type DangerZoneHint = DangerRectHint | DangerTargetHint;
+export interface DangerRayHint {
+  kind: 'ray';
+  from: ProjectileDepthPoint;
+  to: ProjectileDepthPoint;
+  halfWidth: number;
+}
+
+export interface SafeSpotHint {
+  kind: 'safe';
+  x: number;
+  y: number;
+  radius: number;
+}
+
+export type DangerZoneHint = DangerRectHint | DangerTargetHint | DangerRayHint | SafeSpotHint;
 
 export interface DangerPerspectiveQuad {
   readonly topLeft: ProjectileDepthPoint;
@@ -157,12 +171,16 @@ export function clearVerticalSafeWedgeForTunnelTarget(
   hint: Pick<SafeLaneHint, 'center' | 'halfWidth'>,
   side: -1 | 1,
   collisionClearance: number,
-  contactDepth = PROJECTILE_CONTACT_DEPTH,
+  contactDepth?: number,
 ): ProjectileDepthPoint {
-  const expansion = projectileDepthExpansion(contactDepth);
+  const resolvedContactDepth = contactDepth ?? calculateTunnelContactDepth(
+    BOSS_PROJECTILE_ORIGIN,
+    target,
+  );
+  const expansion = projectileDepthExpansion(resolvedContactDepth);
   if (expansion <= 0) return { ...target };
 
-  const projected = projectTunnelTargetAtDepth(target, contactDepth);
+  const projected = projectTunnelTargetAtDepth(target, resolvedContactDepth);
   const wedge = verticalSafeWedgeBoundsAtY(hint, projected.y);
   const requiredProjectedX = side < 0
     ? wedge.left - Math.max(0, collisionClearance)
@@ -192,6 +210,7 @@ export function dangerZonesForPattern(
       y: deadlineBeamY - 22,
       width: COMBAT_ARENA.width,
       height: 44,
+      projection: 'screen',
     }];
   }
 

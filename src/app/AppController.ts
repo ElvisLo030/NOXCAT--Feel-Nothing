@@ -6,14 +6,11 @@ import {
   type FaceScoreUpdate,
 } from '../face/FaceController';
 import { createGameConfig } from '../game/config';
-import {
-  createAllAttackDemoSequence,
-  shouldUseAllAttackDemo,
-} from '../game/demoBattle';
 import { setBattleRuntime } from '../game/runtime';
 import type { BattleResultDetail } from '../game/scenes/BattleScene';
 import { AudioSystem } from '../game/systems/AudioSystem';
 import { formatSeconds, requireElement, setSafeText } from './dom';
+import { presentResultScreen } from './resultScreen';
 
 const QUICK_ANNOYANCES = ['需求一直改', '程式 Bug', '星期一', '已讀不回'] as const;
 
@@ -76,7 +73,7 @@ export class AppController {
               <span class="toggle" aria-hidden="true"></span>
               <b>配戴額前護目鏡</b>
             </label>
-            <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 音效開啟</label>
+            <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 配樂與音效</label>
           </div>
           <button class="primary-button" type="submit" data-testid="generate-boss">生成我的 BOSS <span>→</span></button>
         </form>
@@ -340,14 +337,11 @@ export class AppController {
       </main>
       <div class="landscape-warning" role="status"><strong>請轉回直式</strong><span>果凍砲彈需要垂直戰場</span></div>
     `;
-    const requestedDemo = new URLSearchParams(window.location.search).get('demo');
-    const attackSequence = shouldUseAllAttackDemo(
-      result.source,
-      import.meta.env.DEV,
-      requestedDemo,
-    )
-      ? createAllAttackDemoSequence()
-      : result.boss.attacks;
+    // 僅保留開發環境的單招診斷入口；一般遊戲一律使用完整隨機招池。
+    const attackSequence = import.meta.env.DEV
+      && new URLSearchParams(window.location.search).get('demo') === 'off'
+      ? result.boss.attacks
+      : undefined;
     setBattleRuntime({
       boss: result.boss,
       attackSequence,
@@ -377,13 +371,18 @@ export class AppController {
     this.destroyGame();
     this.root.classList.remove('battle-active');
     const snapshot = result.snapshot;
+    const presented = presentResultScreen({
+      won: result.won,
+      lives: snapshot.lives,
+      resultLine: result.resultLine,
+    });
     this.root.innerHTML = `
-      <main class="screen result-screen ${result.won ? 'won' : 'lost'}" aria-labelledby="result-title">
-        <p class="eyebrow">ROUND COMPLETE</p>
+      <main class="screen result-screen ${presented.modifier}" data-result-kind="${presented.kind}" aria-labelledby="result-title">
+        <p class="eyebrow" data-testid="result-eyebrow"></p>
         <p class="grade"><span class="sr-only">評級 </span><span data-grade-value></span></p>
         <h2 id="result-title" tabindex="-1" data-testid="result-title"></h2>
         <h3 class="result-boss"></h3>
-        <p class="result-line"></p>
+        <p class="result-line" data-testid="result-line"></p>
         <dl class="stats-grid">
           <div><dt>完成時間</dt><dd data-stat="time"></dd></div>
           <div><dt>擦彈</dt><dd data-stat="graze"></dd></div>
@@ -397,10 +396,11 @@ export class AppController {
         </div>
       </main>
     `;
+    setSafeText(requireElement(this.root, '[data-testid="result-eyebrow"]'), presented.eyebrow);
     setSafeText(requireElement(this.root, '[data-grade-value]'), result.grade);
-    setSafeText(requireElement(this.root, '[data-testid="result-title"]'), result.won ? 'BOSS DEFEATED' : snapshot.lives === 0 ? 'NOXCAT OVERLOADED' : 'BOSS ESCAPED');
+    setSafeText(requireElement(this.root, '[data-testid="result-title"]'), presented.title);
     setSafeText(requireElement(this.root, '.result-boss'), result.bossName);
-    setSafeText(requireElement(this.root, '.result-line'), result.resultLine);
+    setSafeText(requireElement(this.root, '[data-testid="result-line"]'), presented.line);
     setSafeText(requireElement(this.root, '[data-stat="time"]'), formatSeconds(snapshot.elapsedMs));
     setSafeText(requireElement(this.root, '[data-stat="graze"]'), String(snapshot.grazeCount));
     setSafeText(requireElement(this.root, '[data-stat="reflect"]'), String(snapshot.reflectCount));
@@ -437,7 +437,8 @@ export class AppController {
     if (!(target instanceof Element) || !target.closest('button')) return;
     const checkbox = this.root.querySelector<HTMLInputElement>('#sound-enabled');
     this.uiAudio.setEnabled(checkbox?.checked ?? this.soundEnabled);
-    void this.uiAudio.unlock().then(() => this.uiAudio.play('button'));
+    const cue = target.closest('.start-screen') ? 'homeSelect' : 'button';
+    void this.uiAudio.unlock().then(() => this.uiAudio.play(cue));
   }
 
   private async stopFace(): Promise<void> {

@@ -1,16 +1,20 @@
+import { clipLineToBounds } from '../systems/LineGeometry';
 import Phaser from 'phaser';
-import { PALETTE, PALETTE_CSS } from '../../theme/palette';
+import { COMBAT_COLORS, PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { GameSession, type GameSessionSnapshot } from '../../state/GameSession';
 import { SeededRng } from '../../utils/rng';
+import { createAttackPool } from '../attackSequence';
 import {
   AIM_MAX_PULL,
   AIM_MIN_PULL,
   BOSS_WEAK_POINT_RADIUS,
+  DODGE_AREA_TOP,
   GAME_HEIGHT,
   GAME_WIDTH,
   LAUNCH_SPEED,
   NEUTRAL_ENERGY_PER_SECOND,
   POST_HIT_RELIEF_MS,
+  PLAYER_INVULNERABLE_MS,
   PLAYER_LAUNCH_RADIUS,
   PLAYER_GRAZE_RADIUS,
   PLAYER_HIT_RADIUS,
@@ -26,6 +30,7 @@ import { BattleState, isTerminalBattleState } from '../events';
 import { getBattleRuntime, type BattleFaceSnapshot } from '../runtime';
 import { AimGuide } from '../ui/AimGuide';
 import { Hud } from '../ui/Hud';
+import { DANGER_INSTRUCTION } from '../ui/attackCues';
 import { AttackDirector, type DangerZoneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import {
@@ -87,6 +92,7 @@ export class BattleScene extends Phaser.Scene {
   private debug?: DebugOverlay;
   private testHook?: NonNullable<Window['__NOXCAT_TEST__']>;
   private waveGuide!: Phaser.GameObjects.Graphics;
+  private lastHomingCueMs = 0;
   private bossSpeech!: Phaser.GameObjects.Text;
   private chatterTimer?: Phaser.Time.TimerEvent;
   private battleLineIndex = 0;
@@ -155,9 +161,19 @@ export class BattleScene extends Phaser.Scene {
     this.aimGuide = new AimGuide(this);
     this.audio = new AudioSystem();
     this.audio.setEnabled(runtime.soundEnabled);
+    this.audio.setMusicMode('intro');
+    this.audio.startMusic('battle.main');
+    // A submit, camera, or skip gesture has already happened before the Scene
+    // exists. Browsers requiring a canvas gesture retry from setupInput.
+    void this.audio.unlock();
     this.setupBossChatter();
+    const fixedSequence = import.meta.env.DEV ? runtime.attackSequence : undefined;
     this.director = new AttackDirector(
-      { attacks: runtime.attackSequence ?? runtime.boss.attacks },
+      {
+        attacks: fixedSequence ?? createAttackPool(runtime.boss.attacks),
+        shuffleSeed: fixedSequence ? undefined : runtime.boss.seed,
+        commentLines: runtime.boss.commentLines,
+      },
       new SeededRng(runtime.boss.seed),
       this.projectiles,
       {
@@ -167,20 +183,20 @@ export class BattleScene extends Phaser.Scene {
           if (this.debug) this.hud.setStateMessage(pattern.replaceAll('_', ' ').toUpperCase());
         },
         onReturnableTutorial: () => this.hud.flash('↻ 高速撞回去！', 1500),
+        onReturnableWindow: () => {
+          this.hideDangerZones();
+          this.hud.setStateMessage('↻ 高速撞回文件');
+        },
+        onDangerZonesChanged: (zones) => this.paintDangerZones(zones),
         getPlayerPosition: () => ({ x: this.noxcat.x, y: this.noxcat.y }),
-        onWavePhaseChanged: (phase, _pattern, volley, _safeLane, dangerZones) => {
+        onWavePhaseChanged: (phase, _pattern, _volley, _safeLane, dangerZones) => {
           if (phase === 'TELEGRAPH') {
             this.showDangerZones(dangerZones ?? []);
-            // This label sits over the unlit route, so describe the action rather
-            // than accidentally naming the safe gap as the danger zone.
-            this.hud.setStateMessage('MOVE TO DARK');
-            this.hud.flash(
-              volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
-              850,
-            );
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
+            this.hud.flash(DANGER_INSTRUCTION, 850, true);
           } else if (phase === 'ACTIVE') {
             this.fadeDangerZones();
-            this.hud.setStateMessage('DODGE');
+            this.hud.setStateMessage(DANGER_INSTRUCTION, true);
           } else {
             this.hideDangerZones();
             this.hud.setStateMessage('CLEAR');
@@ -213,6 +229,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.session.state !== BattleState.INTRO && !isTerminalBattleState(this.session.state)) {
       this.simulationUpdateCount += 1;
       this.session.advanceTime(delta);
+      this.syncMusicToBattleState();
       this.currentPacing = computePacing({
         elapsedMs: this.session.elapsedMs,
         remainingMs: this.session.remainingMs,
@@ -227,6 +244,7 @@ export class BattleScene extends Phaser.Scene {
       this.updateNeutral(face, dt);
       this.handleBeamCollisions(noxcatBeforeStep.y, delta);
       this.projectiles.update(dt, this.noxcat, this.combatTimeScale);
+      this.updateHomingCue(delta);
       this.handleProjectileCollisions(noxcatBeforeStep, delta);
       this.collisionUpdateCount += 1;
       if (this.session.state === BattleState.DODGING) {
@@ -273,8 +291,15 @@ export class BattleScene extends Phaser.Scene {
     background.lineStyle(1, 0x97ba22, 0.11);
     const floorBottom = Math.max(900, view.bottom - 60);
     const floorDivisions = 11;
-    for (let row = 1; row <= floorDivisions; row += 1) {
-      const y = floorGridY(row, floorDivisions, floorBottom);
+    const floorRows = Array.from({ length: floorDivisions }, (_, row) => (
+      floorGridY(row + 1, floorDivisions, floorBottom)
+    ));
+    const boundaryRow = floorRows.reduce((nearest, y) => (
+      Math.abs(y - DODGE_AREA_TOP) < Math.abs(nearest - DODGE_AREA_TOP) ? y : nearest
+    ));
+    // 不同螢幕比例下，最近的地板橫線都與活動邊界共用同一高度。
+    for (const rowY of floorRows) {
+      const y = rowY === boundaryRow ? DODGE_AREA_TOP : rowY;
       background.lineBetween(view.left, y, view.right, y);
     }
     // The floor frame and Boss-fired documents now share the exact same
@@ -316,6 +341,14 @@ export class BattleScene extends Phaser.Scene {
     );
     background.fillStyle(PALETTE.green, 0.035).fillEllipse(270, 450, 510, 560);
 
+    // 用淡色地板與短邊線標示一般移動區，避免玩家碰到看不見的牆。
+    background.fillStyle(PALETTE.green, 0.025)
+      .fillRect(0, DODGE_AREA_TOP, GAME_WIDTH, GAME_HEIGHT - DODGE_AREA_TOP);
+    background.lineStyle(2, PALETTE.green, 0.3)
+      .lineBetween(12, DODGE_AREA_TOP, GAME_WIDTH - 12, DODGE_AREA_TOP)
+      .lineBetween(12, DODGE_AREA_TOP, 12, DODGE_AREA_TOP + 18)
+      .lineBetween(GAME_WIDTH - 12, DODGE_AREA_TOP, GAME_WIDTH - 12, DODGE_AREA_TOP + 18);
+
     const vignette = this.vignette ?? this.add.graphics().setDepth(90).setAlpha(0.12);
     this.vignette = vignette;
     vignette.clear().lineStyle(46 / view.zoom, 0x000000, 1).strokeRect(
@@ -343,22 +376,27 @@ export class BattleScene extends Phaser.Scene {
     this.waveGuide.clear().setAlpha(0);
     if (zones.length === 0) return;
 
-    for (const zone of zones) {
-      if (zone.kind === 'rect') this.drawHatchedDangerRect(zone);
-      else this.drawTargetDanger(zone.x, zone.y, zone.radius);
-    }
+    this.paintDangerZones(zones);
     this.tweens.add({
       targets: this.waveGuide,
-      alpha: { from: 0.58, to: 1 },
-      duration: 180,
-      yoyo: true,
-      repeat: 1,
-      ease: 'Quad.Out',
+      alpha: { from: 0.35, to: 1 },
+      duration: 240,
+      ease: 'Sine.Out',
     });
   }
 
+  private paintDangerZones(zones: readonly DangerZoneHint[]): void {
+    this.waveGuide.clear();
+    for (const zone of zones) {
+      if (zone.kind === 'rect') this.drawHatchedDangerRect(zone);
+      else if (zone.kind === 'ray') this.drawDirectionalDanger(zone);
+      else if (zone.kind === 'safe') this.drawSafeSpot(zone);
+      else this.drawTargetDanger(zone.x, zone.y, zone.radius);
+    }
+  }
+
   private drawHatchedDangerRect(zone: Extract<DangerZoneHint, { kind: 'rect' }>): void {
-    const colour = 0x91d500;
+    const colour = COMBAT_COLORS.danger;
     if (zone.projection === 'screen') {
       const right = zone.x + zone.width;
       const bottom = zone.y + zone.height;
@@ -378,6 +416,18 @@ export class BattleScene extends Phaser.Scene {
       for (const depth of [0.28, 0.56, 0.82]) {
         const y = Phaser.Math.Linear(zone.y, bottom, depth);
         this.waveGuide.lineBetween(zone.x, y, right, y);
+      }
+      const cueTop = Math.max(zone.y, DODGE_AREA_TOP + 20);
+      const cueBottom = Math.min(bottom, GAME_HEIGHT - 100);
+      if (cueBottom - cueTop > 24) {
+        const y = (cueTop + cueBottom) / 2;
+        if (this.director.currentPattern === 'closing_walls') {
+          this.drawCueArrow(76, y, 1, 0);
+          this.drawCueArrow(GAME_WIDTH - 76, y, -1, 0);
+        } else if (this.director.currentPattern === 'top_downpour') {
+          const x = (Math.max(20, zone.x) + Math.min(GAME_WIDTH - 20, right)) / 2;
+          for (const offset of [-40, 40]) this.drawCueArrow(x, y + offset, 0, 1);
+        }
       }
       return;
     }
@@ -404,10 +454,85 @@ export class BattleScene extends Phaser.Scene {
       };
       this.waveGuide.lineBetween(left.x, left.y, right.x, right.y);
     }
+    const ray = projectDangerRayHatch(quad, 0.5);
+    const dx = ray.end.x - ray.start.x;
+    const dy = ray.end.y - ray.start.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const depths = this.director.currentPattern === 'pulse_barrage' ? [0.68, 0.8, 0.92] : [0.84];
+    for (const depth of depths) {
+      this.drawCueArrow(ray.start.x + dx * depth, ray.start.y + dy * depth, dx / length, dy / length);
+    }
+  }
+
+  private drawCueArrow(x: number, y: number, dx: number, dy: number): void {
+    this.waveGuide.lineStyle(3, COMBAT_COLORS.danger, 0.9)
+      .lineBetween(x - dx * 12, y - dy * 12, x + dx * 12, y + dy * 12);
+    this.waveGuide.fillStyle(COMBAT_COLORS.danger, 0.95).fillTriangle(
+      x + dx * 17, y + dy * 17,
+      x + dx * 3 - dy * 8, y + dy * 3 + dx * 8,
+      x + dx * 3 + dy * 8, y + dy * 3 - dx * 8,
+    );
+  }
+
+  private drawDirectionalDanger(zone: Extract<DangerZoneHint, { kind: 'ray' }>): void {
+    const dx = zone.to.x - zone.from.x;
+    const dy = zone.to.y - zone.from.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / distance;
+    const uy = dy / distance;
+    const segment = clipLineToBounds(zone.from, { x: ux, y: uy }, {
+      left: 14, right: GAME_WIDTH - 14, top: DODGE_AREA_TOP + 8, bottom: GAME_HEIGHT - 64,
+    });
+    if (!segment) return;
+    const { entry: from, exit: to } = segment;
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    const colour = COMBAT_COLORS.danger;
+    const band = [
+      { x: from.x - uy * zone.halfWidth, y: from.y + ux * zone.halfWidth },
+      { x: to.x - uy * zone.halfWidth, y: to.y + ux * zone.halfWidth },
+      { x: to.x + uy * zone.halfWidth, y: to.y - ux * zone.halfWidth },
+      { x: from.x + uy * zone.halfWidth, y: from.y - ux * zone.halfWidth },
+    ];
+    // 光帶表示彈幕寬度，短虛線與實心箭頭表示來向；避開 Boss 與底部 HUD。
+    this.waveGuide.fillStyle(colour, 0.065).fillPoints(band, true, true);
+    for (const side of [-1, 1]) {
+      const ox = -uy * zone.halfWidth * side;
+      const oy = ux * zone.halfWidth * side;
+      this.waveGuide.lineStyle(1, colour, 0.2).lineBetween(from.x + ox, from.y + oy, to.x + ox, to.y + oy);
+    }
+    this.waveGuide.lineStyle(10, colour, 0.06).lineBetween(from.x, from.y, to.x, to.y);
+    for (let offset = 12; offset < length - 12; offset += 28) {
+      const end = Math.min(offset + 11, length - 12);
+      this.waveGuide.lineStyle(1.5, PALETTE.white, 0.55)
+        .lineBetween(from.x + ux * offset, from.y + uy * offset, from.x + ux * end, from.y + uy * end);
+    }
+    for (let offset = 40; offset < length - 16; offset += 100) {
+      const x = from.x + ux * offset;
+      const y = from.y + uy * offset;
+      this.waveGuide.fillStyle(colour, 0.9).fillTriangle(
+        x + ux * 10, y + uy * 10,
+        x - ux * 7 - uy * 7, y - uy * 7 + ux * 7,
+        x - ux * 7 + uy * 7, y - uy * 7 - ux * 7,
+      );
+    }
+    // 入口只用一個短刻度收尾，讓多條路徑同時出現時仍容易辨識。
+    this.waveGuide.lineStyle(3, colour, 0.8)
+      .lineBetween(from.x - uy * 10, from.y + ux * 10, from.x + uy * 10, from.y - ux * 10);
+  }
+
+  private drawSafeSpot(zone: Extract<DangerZoneHint, { kind: 'safe' }>): void {
+    this.waveGuide.fillStyle(PALETTE.black, 0.9).fillCircle(zone.x, zone.y, zone.radius + 6);
+    this.waveGuide.fillStyle(PALETTE.green, 0.12).fillCircle(zone.x, zone.y, zone.radius);
+    this.waveGuide.lineStyle(1.5, PALETTE.white, 0.75).strokeCircle(zone.x, zone.y, zone.radius);
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 2) {
+      this.waveGuide.lineStyle(2.5, PALETTE.green, 0.9).beginPath()
+        .arc(zone.x, zone.y, zone.radius + 7, angle + 0.2, angle + 0.9).strokePath();
+    }
+    this.waveGuide.fillStyle(PALETTE.white, 0.8).fillCircle(zone.x, zone.y, 2);
   }
 
   private drawTargetDanger(x: number, y: number, radius: number): void {
-    const colour = 0x91d500;
+    const colour = COMBAT_COLORS.danger;
     const cone = projectDangerTargetCone({ kind: 'target', x, y, radius });
     const conePoints = [
       cone.originLeft,
@@ -435,7 +560,7 @@ export class BattleScene extends Phaser.Scene {
       targets: this.waveGuide,
       // Actual projectiles take over as the primary cue during ACTIVE, while a
       // faint hatch preserves the promise made by the telegraph.
-      alpha: 0.12,
+      alpha: this.director.currentPattern === 'closing_walls' ? 0.5 : 0.22,
       duration: 240,
       ease: 'Quad.Out',
     });
@@ -444,6 +569,26 @@ export class BattleScene extends Phaser.Scene {
   private hideDangerZones(): void {
     this.tweens.killTweensOf(this.waveGuide);
     this.waveGuide.clear().setAlpha(0);
+  }
+
+  private updateHomingCue(deltaMs: number): void {
+    if (this.session.state !== BattleState.DODGING || this.director.currentPattern !== 'revision_homing'
+      || this.director.currentPhase !== 'ACTIVE') return;
+    this.lastHomingCueMs += deltaMs;
+    if (this.lastHomingCueMs < 100) return;
+    this.lastHomingCueMs = 0;
+    const cards = this.projectiles.activeProjectiles().filter((card) => card.kind === 'homing' && card.isDamage && !card.friendly);
+    if (cards.length === 0) return;
+    // 只以 10 Hz 更新小型瞄準圈；追蹤停止後圈的位置也固定，讓閃避時機可讀。
+    this.tweens.killTweensOf(this.waveGuide);
+    this.waveGuide.clear().setAlpha(0.8);
+    for (const card of cards) {
+      const { x, y } = card.homingTarget;
+      const radius = card.homingRemainingMs > 0 ? 38 : 30;
+      this.waveGuide.lineStyle(2, COMBAT_COLORS.danger, 0.8).strokeCircle(x, y, radius)
+        .lineBetween(x - 10, y, x + 10, y).lineBetween(x, y - 10, x, y + 10);
+    }
+    this.hud.setStateMessage(DANGER_INSTRUCTION, true);
   }
 
   private showIntro(name: string, line: string, source: 'ai' | 'fallback'): void {
@@ -493,7 +638,7 @@ export class BattleScene extends Phaser.Scene {
 
   private setupInput(): void {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      void this.audio.unlock();
+      const audioReady = this.audio.unlock();
       if (this.focusPaused || this.activePointerId !== null) return;
       const world = viewportPointToWorld(this.viewportLayout, pointer.x, pointer.y);
       this.lastInputSample = {
@@ -511,7 +656,12 @@ export class BattleScene extends Phaser.Scene {
           this.aimAnchor.set(this.noxcat.x, this.noxcat.y);
           this.aimPointer.set(world.x, world.y);
           this.noxcat.beginAim();
-          this.audio.play('draw');
+          void audioReady.then(() => {
+            if (this.session.state === BattleState.AIMING && this.activePointerId === pointer.id) {
+              this.audio.startDraw();
+              this.audio.setDrawTension(this.aimPull / AIM_MAX_PULL);
+            }
+          });
         }
         return;
       }
@@ -535,6 +685,7 @@ export class BattleScene extends Phaser.Scene {
       if (this.session.state === BattleState.AIMING) {
         this.aimPointer.set(world.x, world.y);
         this.aimPull = this.noxcat.updateAim(world.x, world.y, this.aimAnchor.x, this.aimAnchor.y);
+        this.audio.setDrawTension(this.aimPull / AIM_MAX_PULL);
         this.aimGuide.show(this.aimAnchor.x, this.aimAnchor.y, world.x, world.y);
       } else if (this.dragging && this.session.state === BattleState.DODGING) {
         this.noxcat.setPointerTarget(world.x, world.y);
@@ -555,6 +706,7 @@ export class BattleScene extends Phaser.Scene {
       this.dragging = false;
       if (releasedDodge) this.noxcat.releaseDrag();
       if (this.session.state !== BattleState.AIMING) return;
+      this.audio.stopDraw();
       this.aimGuide.hide();
       const pullVector = this.aimAnchor.clone().subtract(this.aimPointer);
       const launched = this.session.releaseAim(this.aimPull);
@@ -886,6 +1038,7 @@ export class BattleScene extends Phaser.Scene {
         this.pauseResumeTimer = undefined;
         if (!this.focusPaused) this.cancelPointerInteraction();
         this.focusPaused = true;
+        this.audio.setMusicPaused(true);
         // Returning early from Scene.update is not enough to pause Phaser's
         // Clock: delayed calls (intro, stagger, hit relief, and launch return)
         // are advanced by the Scene systems before update runs. Freeze that
@@ -903,6 +1056,7 @@ export class BattleScene extends Phaser.Scene {
           this.pauseResumeTimer = undefined;
           if (document.hidden || touchLandscapeQuery.matches || this.ended) return;
           this.focusPaused = false;
+          this.audio.setMusicPaused(false);
           if (this.session.state === BattleState.DODGING && !this.hitReliefTimer) {
             this.director.resume(false);
           }
@@ -988,6 +1142,7 @@ export class BattleScene extends Phaser.Scene {
       this.noxcat.cancelDrag();
     }
     if (this.session.state !== BattleState.AIMING) return;
+    this.audio.stopDraw();
     this.aimGuide.hide();
     this.session.releaseAim(0);
     this.noxcat.cancelAim(this.aimAnchor.x, this.aimAnchor.y);
@@ -996,7 +1151,10 @@ export class BattleScene extends Phaser.Scene {
 
   private setupDebug(): void {
     const params = new URLSearchParams(location.search);
-    const debugEnabled = import.meta.env.DEV || params.get('debug') === '1';
+    // Keep ordinary local play identical to the production presentation.
+    // Diagnostics are opt-in so a development build does not permanently
+    // cover the upper-left HUD with the debug panel.
+    const debugEnabled = params.get('debug') === '1';
     // Screenshot automation is a local-development convenience, not a
     // production cheat surface. The documented `?debug=1` demo diagnostics
     // remain available in production, but `?capture=1` must never expose the
@@ -1099,6 +1257,14 @@ export class BattleScene extends Phaser.Scene {
         // round; the next scene update then runs the normal result dispatch.
         this.session.advanceTime(this.session.remainingMs);
       },
+      overloadForTest: () => {
+        if (isTerminalBattleState(this.session.state)) return;
+        let nowMs = this.session.elapsedMs;
+        while (this.session.lives > 0 && !isTerminalBattleState(this.session.state)) {
+          nowMs += PLAYER_INVULNERABLE_MS + 1;
+          this.session.takePlayerHit(nowMs);
+        }
+      },
       snapshot: () => this.session.snapshot(),
       visualSnapshot: () => this.noxcat.visualSnapshot(),
       qualitySnapshot: () => ({
@@ -1122,6 +1288,8 @@ export class BattleScene extends Phaser.Scene {
             projectile.isDamage && !projectile.friendly
           )).length + activeBeams.filter((beam) => beam.telegraphMs <= 0 && beam.activeMs > 0).length,
           safeLane: this.director.currentSafeLane ?? null,
+          safeSpot: this.director.currentSafeSpot ?? null,
+          dangerZones: this.director.currentDangerZones,
           combatTimeScale: this.combatTimeScale,
           vulnerableRemainingMs: this.vulnerableRemainingMs,
           weakPointTweenCount: this.boss.weakPointTweenCount,
@@ -1204,7 +1372,8 @@ export class BattleScene extends Phaser.Scene {
     this.hud.clearFlash();
     this.boss.setWeakPointVisible(false);
     const won = this.session.state === BattleState.WON;
-    this.audio.play(won ? 'win' : 'lose');
+    this.audio.stopMusic();
+    this.audio.play(won ? 'bossDefeat' : 'lose');
     this.hud.setStateMessage(won ? 'BOSS DEFEATED' : 'NOXCAT OVERLOADED');
     if (won) this.boss.playDefeatCollapse();
     const snapshot = this.session.snapshot();
@@ -1220,6 +1389,19 @@ export class BattleScene extends Phaser.Scene {
       ? BOSS_DEFEAT_DURATION_MS
       : import.meta.env.DEV && window.__NOXCAT_TEST__ ? 100 : 900;
     this.time.delayedCall(resultDelay, () => window.dispatchEvent(new CustomEvent<BattleResultDetail>('noxcat:battle-result', { detail })));
+  }
+
+  private syncMusicToBattleState(): void {
+    const modes = {
+      [BattleState.INTRO]: 'intro',
+      [BattleState.DODGING]: 'dodge',
+      [BattleState.VULNERABLE]: 'vulnerable',
+      [BattleState.AIMING]: 'aiming',
+      [BattleState.LAUNCHED]: 'launched',
+      [BattleState.STAGGERED]: 'staggered',
+    } as const;
+    if (this.session.state === BattleState.WON || this.session.state === BattleState.LOST) return;
+    this.audio.setMusicMode(modes[this.session.state]);
   }
 
   private cleanup(): void {

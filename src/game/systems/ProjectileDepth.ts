@@ -1,3 +1,11 @@
+import {
+  PLAYER_HIT_RADIUS,
+  PLAYER_MAX_X,
+  PLAYER_MAX_Y,
+  PLAYER_MIN_X,
+  PLAYER_MIN_Y,
+} from '../constants';
+
 export type ProjectileKind = 'paper' | 'comment' | 'returnable' | 'wall' | 'homing';
 
 export interface ProjectileDepthPose {
@@ -81,15 +89,26 @@ export interface TunnelProjection {
   readonly collisionActive: boolean;
 }
 
+/** 改變可見瞄準射線但保留原接近時鐘，避免追蹤時深度倒退或突然命中。 */
+export function retargetTunnelTrajectory(
+  trajectory: TunnelTrajectory,
+  target: ProjectileDepthPoint,
+): TunnelTrajectory {
+  const x = (target.x - trajectory.origin.x) / TUNNEL_RADIUS_X;
+  const y = (target.y - trajectory.origin.y) / TUNNEL_RADIUS_Y;
+  return {
+    ...trajectory,
+    nearPoint: target,
+    laneAngle: Math.atan2(y, x),
+    laneRadius: Math.hypot(x, y),
+    contactDepth: calculateTunnelContactDepth(trajectory.origin, target),
+  };
+}
+
 export const WALL_CARD_SCALE_Y = 1;
 const PROJECTILE_TEXTURE_HEIGHT = 52;
 const FAR_DEPTH_SCALE = 0.13;
 const WALL_NEAR_DEPTH_SCALE = 1.55;
-const PLAYER_MIN_X = 46;
-const PLAYER_MAX_X = 494;
-const PLAYER_MIN_Y = 430;
-const PLAYER_MAX_Y = 884;
-const PLAYER_HIT_RADIUS = 18;
 const TUNNEL_EPSILON = 1e-6;
 const PROJECTILE_DEPTH_EXPONENT = 1.35;
 
@@ -221,18 +240,11 @@ export function createTunnelTrajectory(
   const normalizedX = (nearPoint.x - perspectiveOrigin.x) / TUNNEL_RADIUS_X;
   const normalizedY = (nearPoint.y - perspectiveOrigin.y) / TUNNEL_RADIUS_Y;
   const laneRadius = Math.hypot(normalizedX, normalizedY);
-  const projectedRay = {
-    x: nearPoint.x - perspectiveOrigin.x,
-    y: nearPoint.y - perspectiveOrigin.y,
-  };
-  const contactExpansion = rayRectangleEntryTime(
+  const contactDepth = calculateTunnelContactDepth(
     perspectiveOrigin,
-    projectedRay,
+    nearPoint,
     playerContactBounds,
   );
-  const contactDepth = contactExpansion === null
-    ? PROJECTILE_CONTACT_DEPTH
-    : Math.pow(clamp(contactExpansion, 0, 1), 1 / PROJECTILE_DEPTH_EXPONENT);
 
   return {
     origin: { ...perspectiveOrigin },
@@ -246,6 +258,31 @@ export function createTunnelTrajectory(
     directionX: approachLength > TUNNEL_EPSILON ? approachX / approachLength : 0,
     directionY: approachLength > TUNNEL_EPSILON ? approachY / approachLength : 0,
   };
+}
+
+/** First tunnel depth whose projected centre can enter the full player arena. */
+export function calculateTunnelContactDepth(
+  perspectiveOrigin: ProjectileDepthPoint,
+  nearPoint: ProjectileDepthPoint,
+  playerContactBounds = {
+    left: PLAYER_MIN_X - PLAYER_HIT_RADIUS,
+    right: PLAYER_MAX_X + PLAYER_HIT_RADIUS,
+    top: PLAYER_MIN_Y - PLAYER_HIT_RADIUS,
+    bottom: PLAYER_MAX_Y + PLAYER_HIT_RADIUS,
+  },
+): number {
+  const projectedRay = {
+    x: nearPoint.x - perspectiveOrigin.x,
+    y: nearPoint.y - perspectiveOrigin.y,
+  };
+  const contactExpansion = rayRectangleEntryTime(
+    perspectiveOrigin,
+    projectedRay,
+    playerContactBounds,
+  );
+  return contactExpansion === null
+    ? PROJECTILE_CONTACT_DEPTH
+    : Math.pow(clamp(contactExpansion, 0, 1), 1 / PROJECTILE_DEPTH_EXPONENT);
 }
 
 /** Samples radial tunnel expansion and converges exactly on the fixed collider. */

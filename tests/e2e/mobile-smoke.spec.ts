@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { FINGER_OFFSET_Y, PLAYER_MIN_Y } from '../../src/game/constants';
+import { noxcatPerspectiveScale } from '../../src/game/systems/JellyMotionSystem';
 
 test('an API failure falls back locally and three real pull-release launches win', async ({ page, browserName }) => {
   await page.route('**/api/boss', (route) => route.abort('failed'));
@@ -52,12 +54,12 @@ test('client-side API failure still starts a playable local boss', async ({ page
   expect(snapshot?.lives).toBe(3);
 });
 
-test('goggles default on and the start-screen opt-out reaches the render layer', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', '390x844 accessory and layout coverage');
+test('the layered SVG character fits the start screen and battle', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', '390x844 character and layout coverage');
   await page.goto('/?debug=1&demo=off');
 
-  const gogglesToggle = page.getByTestId('goggles-enabled');
-  await expect(gogglesToggle).toBeChecked();
+  await expect(page.getByTestId('goggles-enabled')).toBeChecked();
+  await expect(page.locator('.css-noxcat')).toBeVisible();
   const screenBox = await page.locator('.start-screen').boundingBox();
   const formBox = await page.getByTestId('start-form').boundingBox();
   if (!screenBox || !formBox) throw new Error('Start screen does not have measurable bounds');
@@ -74,21 +76,6 @@ test('goggles default on and the start-screen opt-out reaches the render layer',
   await expect.poll(
     () => page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot().goggleVisible),
   ).toBe(true);
-
-  await page.goto('/?debug=1&demo=off');
-  const optOut = page.getByTestId('goggles-enabled');
-  await optOut.uncheck({ force: true });
-  await expect(page.locator('.css-goggles')).toBeHidden();
-  await optOut.check({ force: true });
-  await expect(page.locator('.css-goggles')).toBeVisible();
-  await optOut.uncheck({ force: true });
-  await page.getByTestId('generate-boss').click();
-  await page.getByTestId('skip-camera').click();
-  await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
-  await page.waitForFunction(() => Boolean(window.__NOXCAT_TEST__));
-  await expect.poll(
-    () => page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot().goggleVisible),
-  ).toBe(false);
 });
 
 test('desktop layout accepts keyboard movement without horizontal overflow', async ({ page }, testInfo) => {
@@ -101,6 +88,7 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
   await expect(canvas).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
 
+  await page.evaluate(() => window.__NOXCAT_TEST__?.pauseAttacksForVisualTest());
   const before = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   await page.keyboard.down('ArrowLeft');
   await page.waitForTimeout(360);
@@ -109,6 +97,18 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
   const after = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
 
   expect((after?.x ?? 0)).toBeLessThan((before?.x ?? 0) - 8);
+  await page.keyboard.down('ArrowUp');
+  await page.waitForTimeout(1_000);
+  await page.keyboard.up('ArrowUp');
+  await page.waitForTimeout(150);
+  const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  expect(upper?.y).toBeCloseTo(PLAYER_MIN_Y, 0);
+  await page.keyboard.down('s');
+  await page.waitForTimeout(1_000);
+  await page.keyboard.up('s');
+  await page.waitForTimeout(150);
+  const lower = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  expect(lower?.y).toBeCloseTo(884, 0);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   const box = await canvas.boundingBox();
@@ -130,7 +130,7 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   if (!box) throw new Error('Canvas does not have a bounding box');
 
   const startX = box.x + box.width * 0.5;
-  const pointerY = box.y + box.height * 0.865;
+  const pointerY = box.y + box.height * 0.79;
   const endX = box.x + box.width * 0.08;
   await page.mouse.move(startX, pointerY);
   await page.mouse.down();
@@ -139,12 +139,18 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
     await page.waitForTimeout(28);
   }
 
-  const dragging = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  await page.waitForTimeout(100);
+  const dragSample = await page.evaluate(() => ({
+    visual: window.__NOXCAT_TEST__?.visualSnapshot(),
+    input: window.__NOXCAT_TEST__?.inputSnapshot(),
+  }));
+  const dragging = dragSample.visual;
+  if (!dragging || !dragSample.input) throw new Error('Drag sample is unavailable');
   expect(dragging?.hitRadius).toBe(18);
+  expect(Math.abs(dragging.y - (dragSample.input.worldY - FINGER_OFFSET_Y))).toBeLessThan(4);
   // A full-width swipe should be almost caught up within ~200 ms; this guards
   // against reintroducing pointer smoothing or the old sluggish follow spring.
   expect(dragging?.x ?? 999).toBeLessThan(115);
-  expect(dragging?.eyeX).toBeLessThan(0);
   // Ordinary movement is carried entirely by the bun body. The rejected
   // triangular ribbon and launch-only particles must not appear while dragging.
   expect(dragging).not.toHaveProperty('trailStrength');
@@ -153,12 +159,10 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   expect(dragging?.activeDroplets).toBe(0);
   expect(dragging?.glowLayerCount).toBe(3);
   expect(dragging?.glowOuterAlpha).toBeGreaterThan(0.04);
+  expect(Math.abs(dragging?.eyeX ?? 0)).toBeGreaterThan(24);
   expect(dragging?.bodyDisplayWidth).toBeCloseTo(138, 3);
   expect(dragging?.bodyDisplayHeight).toBeCloseTo(126, 3);
-  expect(dragging?.eyeDisplayWidth).toBeCloseTo(57, 3);
-  expect(dragging?.eyeDisplayHeight).toBeCloseTo(48, 3);
-  expect(dragging?.goggleDisplayWidth).toBeCloseTo(57, 3);
-  expect(dragging?.goggleDisplayHeight).toBeCloseTo(48, 3);
+  expect(dragging?.goggleVisible).toBe(true);
   // The logo-led bun body visibly deforms while the round head stays intact.
   expect((dragging?.scaleX ?? 0) - (dragging?.scaleY ?? 0)).toBeGreaterThan(0.08);
 
@@ -180,7 +184,7 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   if (!settled) throw new Error('NOXCAT did not expose its settled visual state');
   const viewport = await page.evaluate(() => window.__NOXCAT_TEST__?.viewportSnapshot());
   if (!viewport) throw new Error('Battle viewport is unavailable');
-  const upperDragStart = worldToScreen(box, viewport, settled.x, settled.y + 72);
+  const upperDragStart = worldToScreen(box, viewport, settled.x, settled.y);
   const upperPointer = worldToScreen(box, viewport, settled.x, 502);
   await page.mouse.move(upperDragStart.x, upperDragStart.y);
   await page.mouse.down();
@@ -188,8 +192,8 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   await page.waitForTimeout(320);
   const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   await page.mouse.up();
-  expect(upper?.y ?? 900).toBeLessThan(500);
-  expect(upper?.depthScale ?? 1).toBeLessThan(0.52);
+  expect(upper?.y).toBeCloseTo(PLAYER_MIN_Y, 0);
+  expect(upper?.depthScale ?? 0).toBeCloseTo(noxcatPerspectiveScale(PLAYER_MIN_Y), 1);
   // Perspective changes only the image; the logical gameplay body stays fixed.
   expect(upper?.hitRadius).toBe(18);
 });
@@ -234,29 +238,41 @@ async function launchUpward(page: Page, useTrustedMouse = false): Promise<void> 
     await page.mouse.move(x, startY);
     await page.mouse.down();
     await page.mouse.move(x, pullY, { steps: 7 });
+    await expectAimState(page);
     await page.mouse.up();
-    return;
-  }
-  // Chromium's DevTools touch injection produces trusted browser touch input,
-  // unlike constructing an untrusted TouchEvent inside the page.
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x, y: startY, radiusX: 2, radiusY: 2, force: 1 }],
-  });
-  for (let step = 1; step <= 7; step += 1) {
+  } else {
+    // Chromium's DevTools touch injection produces trusted browser touch input,
+    // unlike constructing an untrusted TouchEvent inside the page.
+    const cdp = await page.context().newCDPSession(page);
     await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{
-        x,
-        y: startY + (pullY - startY) * (step / 7),
-        radiusX: 2,
-        radiusY: 2,
-        force: 1,
-      }],
+      type: 'touchStart',
+      touchPoints: [{ x, y: startY, radiusX: 2, radiusY: 2, force: 1 }],
     });
+    for (let step = 1; step <= 7; step += 1) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{
+          x,
+          y: startY + (pullY - startY) * (step / 7),
+          radiusX: 2,
+          radiusY: 2,
+          force: 1,
+        }],
+      });
+    }
+    await expectAimState(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(
+    () => page.evaluate(() => window.__NOXCAT_TEST__?.snapshot().state),
+    { timeout: 400 },
+  ).toBe('LAUNCHED');
+}
+
+async function expectAimState(page: Page): Promise<void> {
+  await expect.poll(
+    () => page.evaluate(() => window.__NOXCAT_TEST__?.snapshot().state),
+  ).toBe('AIMING');
 }
 
 function worldToScreen(

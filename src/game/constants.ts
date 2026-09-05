@@ -1,6 +1,14 @@
 export const GAME_WIDTH = 540;
 export const GAME_HEIGHT = 960;
 
+// The full arena stays playable. DODGE_AREA_TOP marks the visual top edge of
+// the character while PLAYER_MIN_Y is its centre, leaving the Boss readable.
+export const DODGE_AREA_TOP = 370;
+export const PLAYER_MIN_X = 46;
+export const PLAYER_MAX_X = GAME_WIDTH - 46;
+export const PLAYER_MIN_Y = DODGE_AREA_TOP + 60;
+export const PLAYER_MAX_Y = GAME_HEIGHT - 76;
+
 export const ROUND_DURATION_MS = 180_000;
 export const PLAYER_MAX_LIVES = 3;
 export const PLAYER_HIT_RADIUS = 18;

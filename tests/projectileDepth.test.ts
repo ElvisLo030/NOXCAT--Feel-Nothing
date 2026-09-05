@@ -515,7 +515,7 @@ describe('shared projectile perspective depth', () => {
       planPaperRain(new SeededRng(11), 2, 1, 270)[0]!,
       planReturnableBurst(new SeededRng(12), 2, 0, 1, { x: 270, y: 720 })
         .projectiles.find((projectile) => projectile.kind === 'returnable')!,
-      planCommentCrossfire(new SeededRng(13), 3, 0, 1, { x: 270, y: 650 })
+      planCommentCrossfire(new SeededRng(13), 3, 1)
         .projectiles[0]!,
       planClosingWalls(new SeededRng(14), 3, 1, 650).projectiles[0]!,
       planRevisionHoming(new SeededRng(15), 3, 1)[0]!,
@@ -526,10 +526,10 @@ describe('shared projectile perspective depth', () => {
 
   it('carries side-authored comment and wall rays across an edge lane before exiting', () => {
     const sideConfigs = [
-      planCommentCrossfire(new SeededRng(21), 1, 0, 1, { x: 270, y: 650 })
+      planCommentCrossfire(new SeededRng(21), 1, 1)
         .projectiles[0]!,
-      planClosingWalls(new SeededRng(22), 3, 1, 650).projectiles
-        .find((projectile) => projectile.x < 0)!,
+      planClosingWalls(new SeededRng(22), 3, 1, 739.2).projectiles
+        .find((projectile) => projectile.x < 0 && projectile.y > 739.2)!,
     ];
 
     for (const config of sideConfigs) {
@@ -545,7 +545,8 @@ describe('shared projectile perspective depth', () => {
       const velocity = radialNearPlaneVelocity(trajectory, Math.hypot(config.vx, config.vy));
 
       expect(trajectory.nearPoint.y).toBeGreaterThanOrEqual(430);
-      expect(velocity.y).toBeGreaterThan(0);
+      expect(Math.sign(velocity.x)).toBe(Math.sign(config.vx));
+      expect(Math.sign(velocity.y)).toBe(Math.sign(config.vy));
       verifyNearPlaneTraversal(config);
     }
   });

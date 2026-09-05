@@ -5,6 +5,7 @@ import { clearVerticalSafeWedgeForTunnelTarget } from '../systems/DangerTelegrap
 import { clamp, randomSignedYawOffset } from './fairness';
 import {
   createPatternTimeline,
+  fitEmissionTimes,
   type AttackPatternContext,
   type AttackPatternHandle,
 } from './types';
@@ -69,7 +70,8 @@ export function planAlternatingZipper(
         radius: PROJECTILE_RADIUS,
         yawOffset: randomSignedYawOffset(rng, 10, 24),
         perspectiveTarget: target,
-        perspectiveDurationMs: Math.round((760 + (index % 2) * 80) / depthClockScale),
+        // 後段同時加快接近速度，讓「越射越快」在畫面上也能讀出來。
+        perspectiveDurationMs: Math.round(Math.max(600, 900 - index * 42) / depthClockScale),
       },
     };
     atMs += ALTERNATING_ZIPPER_INTERVALS_MS[
@@ -92,10 +94,12 @@ export function runAlternatingZipper(
     context.speedScale,
     safeLaneX,
   );
+  const tailMs = Math.max(...plan.shots.map((shot) => shot.projectile.perspectiveDurationMs ?? 0)) + 200;
+  const times = fitEmissionTimes(plan.shots.map((shot) => shot.atMs), context.durationMs, tailMs);
   return createPatternTimeline(
     context.durationMs,
-    plan.shots.map((shot) => ({
-      atMs: shot.atMs,
+    plan.shots.map((shot, index) => ({
+      atMs: times[index]!,
       emit: () => { context.projectiles.spawn(shot.projectile); },
     })),
   );

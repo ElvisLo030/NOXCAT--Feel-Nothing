@@ -76,7 +76,6 @@ export class AssetRegistry {
     const key = this.key('noxcat.body');
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-    // Official primary black from the supplied character usage guide.
     graphics.fillStyle(NOXCAT_OFFICIAL_BLACK, 1);
     graphics.fillPoints(sampleNoxcatBunOutline(), true, true);
     graphics.generateTexture(key, 200, 184);
@@ -87,13 +86,10 @@ export class AssetRegistry {
     const key = this.key('noxcat.eyes');
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-
-    // Keep the Logo's clean oval language: one unbroken official-green shape per eye.
     graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 1);
     for (const eye of NOXCAT_EYES) {
       graphics.fillEllipse(eye.x, eye.y, eye.width, eye.height);
     }
-
     graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
     graphics.destroy();
   }
@@ -102,9 +98,6 @@ export class AssetRegistry {
     const key = this.key('noxcat.goggles');
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-
-    // A separate optional flat accessory: dark strap, medium-grey frame and
-    // bridge, with the official green as the only saturated lens colour.
     graphics.lineStyle(3, NOXCAT_OFFICIAL_BLACK, 1);
     graphics.lineBetween(1, 8, 51, 8);
     graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 0.78);
@@ -114,7 +107,6 @@ export class AssetRegistry {
       graphics.strokeRoundedRect(lens.x, lens.y, lens.width, lens.height, lens.radius);
     }
     graphics.lineBetween(23, 7, 29, 7);
-
     graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
     graphics.destroy();
   }

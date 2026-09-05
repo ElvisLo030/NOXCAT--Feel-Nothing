@@ -15,3 +15,7 @@ export const PALETTE_CSS = {
   lightGray: '#DAD9D7',
   midGray: '#B2B2B2',
 } as const;
+
+/** 玩法訊號獨立於 IP 配色：紅色標示危險，綠色標示安全與反彈。 */
+export const COMBAT_COLORS = { danger: 0xff5364, safe: PALETTE.green } as const;
+export const COMBAT_CSS = { danger: '#FF5364', safe: PALETTE_CSS.green } as const;

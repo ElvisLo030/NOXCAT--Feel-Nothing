@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { AssetRegistry } from '../../assets/AssetRegistry';
 import { PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { interpolateThresholdCrossing } from '../systems/CollisionMath';
+import { trackHomingTarget } from '../systems/HomingGuidance';
 import {
   accelerateProjectileExit,
   initialProjectileExitVelocity,
@@ -13,6 +14,7 @@ import {
   createProjectilePerspectiveProjection,
   createTunnelTrajectory,
   projectProjectilePerspectiveUv,
+  retargetTunnelTrajectory,
   sampleTunnelProjection,
   type TunnelTrajectory,
   type ProjectileKind,
@@ -58,6 +60,7 @@ export interface ProjectileConfig {
   yawOffset?: number;
   damage?: boolean;
   homingMs?: number;
+  homingOffsetX?: number;
   text?: string;
   /** Screen-space point where the far-to-near pass reaches player depth. */
   perspectiveTarget?: Readonly<{ x: number; y: number }>;
@@ -85,6 +88,7 @@ export class Projectile extends Phaser.GameObjects.Container {
   hasGrazedPlayer = false;
   homingRemainingMs = 0;
   ageMs = 0;
+  private homingOffsetX = 0;
   private tunnelTrajectory!: TunnelTrajectory;
   private authoredX = 0;
   private authoredY = 0;
@@ -137,6 +141,10 @@ export class Projectile extends Phaser.GameObjects.Container {
   /** Must remain zero: documents never roll around the camera-facing axis. */
   get screenRoll(): number {
     return this.visualLayer.rotation;
+  }
+
+  get homingTarget(): Readonly<{ x: number; y: number }> {
+    return this.tunnelTrajectory.nearPoint;
   }
 
   /** Actual screen-space corners of the rendered document this frame. */
@@ -203,6 +211,7 @@ export class Projectile extends Phaser.GameObjects.Container {
     this.friendly = false;
     this.hasGrazedPlayer = false;
     this.homingRemainingMs = config.homingMs ?? 0;
+    this.homingOffsetX = config.homingOffsetX ?? 0;
     this.ageMs = 0;
     this.outboundExitActive = false;
     this.projectedYaw = 0;
@@ -297,16 +306,10 @@ export class Projectile extends Phaser.GameObjects.Container {
       this.vy = velocity.y;
     }
     if (this.kind === 'homing' && this.homingRemainingMs > 0 && !this.friendly) {
-      this.homingRemainingMs -= deltaSeconds * 1000;
-      const desired = Math.atan2(
-        playerY - (this.outboundExitActive ? this.y : this.authoredY),
-        playerX - (this.outboundExitActive ? this.x : this.authoredX),
-      );
-      const current = Math.atan2(this.vy, this.vx);
-      const angle = Phaser.Math.Angle.RotateTo(current, desired, 1.5 * dt);
-      const speed = Math.hypot(this.vx, this.vy);
-      this.vx = Math.cos(angle) * speed;
-      this.vy = Math.sin(angle) * speed;
+      const target = trackHomingTarget(this.homingTarget,
+        { x: playerX + this.homingOffsetX, y: playerY }, dt, this.homingRemainingMs);
+      this.tunnelTrajectory = retargetTunnelTrajectory(this.tunnelTrajectory, target);
+      this.homingRemainingMs = Math.max(0, this.homingRemainingMs - dt * 1000);
     }
     const followsProjectedApproach = !this.friendly && !this.outboundExitActive;
     if (followsProjectedApproach) {

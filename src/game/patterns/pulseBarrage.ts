@@ -10,15 +10,18 @@ import {
 } from './fairness';
 import {
   createPatternTimeline,
+  fitEmissionTimes,
   spawnConfigs,
   type AttackPatternContext,
   type AttackPatternHandle,
 } from './types';
 
 export const PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH = 76;
-export const PULSE_BARRAGE_GAP_MS = 760;
+export const PULSE_BARRAGE_GAP_MS = 980;
 
 const PROJECTILE_RADIUS = 18;
+// 旋轉文件與完整貓輪廓比固定碰撞圓寬，近景通道必須預留額外間距。
+const SILHOUETTE_CLEARANCE = PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 32;
 
 export interface PulseBarrageFormation {
   readonly atMs: number;
@@ -49,13 +52,13 @@ export function planPulseBarrage(
       ATTACK_NEAR_MAX_X + halfStep,
       cardsPerPulse,
     );
-    const projectiles = targets.map((targetX, index): ProjectileConfig => {
+    const projectiles = targets.map((targetX): ProjectileConfig => {
       const side: -1 | 1 = targetX < safeLaneX ? -1 : 1;
       const target = clearVerticalSafeWedgeForTunnelTarget(
         { x: targetX, y: 835 },
         { center: safeLaneX, halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH },
         side,
-        PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
+        SILHOUETTE_CLEARANCE,
       );
       return {
         kind: 'paper',
@@ -66,7 +69,7 @@ export function planPulseBarrage(
         radius: PROJECTILE_RADIUS,
         yawOffset: randomSignedYawOffset(rng, 7, 18),
         perspectiveTarget: target,
-        perspectiveDurationMs: Math.round((980 + (index % 2) * 90) / depthClockScale),
+        perspectiveDurationMs: Math.round(980 / depthClockScale),
       };
     });
     return {
@@ -88,10 +91,13 @@ export function runPulseBarrage(
     context.speedScale,
     safeLaneX,
   );
+  const tailMs = Math.max(...plan.formations.flatMap((formation) =>
+    formation.projectiles.map((card) => card.perspectiveDurationMs ?? 0))) + 200;
+  const times = fitEmissionTimes(plan.formations.map((formation) => formation.atMs), context.durationMs, tailMs);
   return createPatternTimeline(
     context.durationMs,
-    plan.formations.map((formation) => ({
-      atMs: formation.atMs,
+    plan.formations.map((formation, index) => ({
+      atMs: times[index]!,
       emit: () => spawnConfigs(context.projectiles, formation.projectiles),
     })),
   );

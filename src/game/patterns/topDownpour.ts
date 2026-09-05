@@ -55,10 +55,14 @@ export function planTopDownpour(
       ? totalCount
       : Math.max(1, Math.min(totalCount - 1, Math.round(totalCount * leftSpan / combinedSpan)));
   const rightCount = totalCount - leftCount;
-  const columns = [
-    ...evenlySpaced(ATTACK_NEAR_MIN_X, leftMaximum, leftCount),
-    ...evenlySpaced(rightMinimum, ATTACK_NEAR_MAX_X, rightCount),
-  ];
+  const leftColumns = evenlySpaced(ATTACK_NEAR_MIN_X, leftMaximum, leftCount);
+  const rightColumns = evenlySpaced(rightMinimum, ATTACK_NEAR_MAX_X, rightCount);
+  // 左右雨柱交錯落下，讓兩邊的紅色預警在開場就有對應文件。
+  const columns: number[] = [];
+  for (let index = 0; index < Math.max(leftCount, rightCount); index++) {
+    if (leftColumns[index] !== undefined) columns.push(leftColumns[index]!);
+    if (rightColumns[index] !== undefined) columns.push(rightColumns[index]!);
+  }
   const speed = (250 + intensity * 22) * speedScale;
   const depthClockScale = Math.max(0.1, speedScale);
   const projectiles = columns.map((columnX, index): ProjectileConfig => {
