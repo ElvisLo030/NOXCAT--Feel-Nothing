@@ -256,7 +256,11 @@ export class BattleScene extends Phaser.Scene {
       if (this.session.state === BattleState.LAUNCHED) this.updateLaunch(noxcatBeforeStep);
     }
 
-    this.hud.update(this.session.snapshot(), this.neutralScore);
+    const boostActive = this.faceSnapshot?.bonusEligible === true
+      && this.session.state === BattleState.DODGING
+      && !this.ended
+      && !this.focusPaused;
+    this.hud.update(this.session.snapshot(), this.neutralScore, boostActive, delta * this.combatTimeScale);
     this.debug?.update(
       this.session,
       this.noxcat,
@@ -1023,6 +1027,7 @@ export class BattleScene extends Phaser.Scene {
     const budget = visualBudgetForQuality(this.performanceQuality.level);
     this.noxcat.setGhostQuality(budget.ghostLimit);
     this.projectiles.setVisualQuality(budget.reduceProjectileEffects);
+    this.hud.setVisualQualityReduced(budget.reduceProjectileEffects);
   }
 
   private setupVisibilityHandling(): void {
