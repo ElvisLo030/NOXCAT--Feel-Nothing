@@ -75,7 +75,7 @@ AI 的責任被限制在已實作的遊戲空間內：模型只能選擇 schema 
 
 | 類型 | 技術／服務 | 用途 |
 | --- | --- | --- |
-| AI 模型 | OpenAI `gpt-5-mini`，或 OpenAI-compatible Ollama／Gemma | 將玩家煩惱生成結構化 BossDNA 與戰鬥台詞 |
+| AI 模型 | Server 端部署的 gemma4-e2b | 將玩家煩惱生成結構化 BossDNA 與戰鬥台詞 |
 | AI 驗證 | Zod、OpenCC | 限制 AI 輸出結構、拒絕未知機制，統一為臺灣繁體中文 |
 | 裝置端視覺 | MediaPipe Face Landmarker | 在本機估算可見臉部動作並計算遊戲化 Neutral 分數 |
 | 前端 | TypeScript、Phaser 3.90、Vite 8、純 CSS | 遊戲主循環、手機操作、視覺動畫、HUD 與頁面流程 |
