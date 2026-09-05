@@ -34,6 +34,7 @@ import {
   sweptPointDistance,
 } from '../systems/CollisionMath';
 import { ProjectileSystem } from '../systems/ProjectileSystem';
+import { computePacing, type PacingScale } from '../systems/PacingDirector';
 import {
   advancePerformanceQuality,
   createPerformanceQualityState,
@@ -86,6 +87,10 @@ export class BattleScene extends Phaser.Scene {
   private debug?: DebugOverlay;
   private testHook?: NonNullable<Window['__NOXCAT_TEST__']>;
   private waveGuide!: Phaser.GameObjects.Graphics;
+  private bossSpeech!: Phaser.GameObjects.Text;
+  private chatterTimer?: Phaser.Time.TimerEvent;
+  private battleLineIndex = 0;
+  private lastBossLineAt = Number.NEGATIVE_INFINITY;
   private dragging = false;
   private activePointerId: number | null = null;
   private aimAnchor = new Phaser.Math.Vector2();
@@ -127,6 +132,7 @@ export class BattleScene extends Phaser.Scene {
   private vignette?: Phaser.GameObjects.Graphics;
   private readonly awardedBeams = new Set<number>();
   private readonly handleViewportResize = (): void => this.applyViewportLayout();
+  private currentPacing: PacingScale | null = null;
 
   constructor() {
     super('BattleScene');
@@ -149,6 +155,7 @@ export class BattleScene extends Phaser.Scene {
     this.aimGuide = new AimGuide(this);
     this.audio = new AudioSystem();
     this.audio.setEnabled(runtime.soundEnabled);
+    this.setupBossChatter();
     this.director = new AttackDirector(runtime.boss, new SeededRng(runtime.boss.seed), this.projectiles, {
       scene: this,
       player: this.noxcat,
@@ -201,6 +208,16 @@ export class BattleScene extends Phaser.Scene {
     if (this.session.state !== BattleState.INTRO && !isTerminalBattleState(this.session.state)) {
       this.simulationUpdateCount += 1;
       this.session.advanceTime(delta);
+      this.currentPacing = computePacing({
+        elapsedMs: this.session.elapsedMs,
+        remainingMs: this.session.remainingMs,
+        energy: this.session.energy,
+        bossHp: this.session.bossHp,
+        mainHits: this.session.mainAttackHits,
+        grazeCount: this.session.grazeCount,
+        lives: this.session.lives,
+      });
+      this.director.setPacingScale(this.currentPacing);
       this.updateVulnerabilityWindow(delta);
       this.updateNeutral(face, dt);
       this.handleBeamCollisions(noxcatBeforeStep.y, delta);
@@ -225,6 +242,7 @@ export class BattleScene extends Phaser.Scene {
       this.faceSnapshot,
       this.projectiles,
       this.director.currentSafeLane,
+      this.currentPacing,
     );
     // Quality monitoring follows wall-clock frame time rather than the 50 ms
     // physics clamp, so a genuinely slow device still degrades after about
@@ -442,6 +460,7 @@ export class BattleScene extends Phaser.Scene {
       });
       this.session.startBattle();
       this.director.start();
+      this.startBossChatter();
     });
   }
 
@@ -580,6 +599,7 @@ export class BattleScene extends Phaser.Scene {
           this.boss.setHp(hp);
           this.boss.hitFeedback(false);
           this.audio.play('bossHit');
+          this.showBossLine(true);
           projectile.recycle();
         }
         continue;
@@ -635,6 +655,7 @@ export class BattleScene extends Phaser.Scene {
         this.noxcat.hitFeedback();
         this.audio.play('hurt');
         this.hud.flash('FEEL THAT?', 650);
+        this.showBossLine(true);
         this.beginPostHitRelief();
       }
     }
@@ -650,6 +671,7 @@ export class BattleScene extends Phaser.Scene {
         if (this.session.takePlayerHit(this.session.elapsedMs)) {
           this.noxcat.hitFeedback();
           this.audio.play('hurt');
+          this.showBossLine(true);
           this.beginPostHitRelief();
         }
       }
@@ -682,10 +704,13 @@ export class BattleScene extends Phaser.Scene {
     this.director.cancelCurrent();
     this.hideDangerZones();
     this.boss.setWeakPointVisible(true);
-    this.vulnerableRemainingMs = VULNERABLE_WINDOW_MS;
-    this.setCombatTimeScale(0.55);
+    const scale = this.currentPacing?.vulnerableScale ?? 1;
+    this.vulnerableRemainingMs = Math.max(1, Math.round(VULNERABLE_WINDOW_MS * scale));
+    const combatScale = this.currentPacing?.combatScale ?? 0.55;
+    this.setCombatTimeScale(combatScale);
     this.audio.play('full');
     this.hud.setStateMessage('DO EVERYTHING');
+    this.showBossLine(true);
     if (this.firstEnergyTutorial) {
       this.firstEnergyTutorial = false;
       this.hud.flash('按住果凍貓・向後拉・放開！', 2_200);
@@ -735,6 +760,7 @@ export class BattleScene extends Phaser.Scene {
     this.boss.setHp(this.session.bossHp);
     this.boss.hitFeedback(true);
     this.audio.play('bossHit');
+    this.showBossLine(true);
     navigator.vibrate?.(20);
     this.noxcat.setPosition(this.boss.x, this.boss.y - 13);
     this.noxcat.beginImpact();
@@ -863,6 +889,69 @@ export class BattleScene extends Phaser.Scene {
     touchLandscapeQuery.addEventListener('change', syncPause);
     this.registry.set('pauseHandler', syncPause);
     syncPause();
+  }
+
+  private setupBossChatter(): void {
+    this.bossSpeech = this.add.text(270, 376, '', {
+      fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
+      fontSize: '17px',
+      fontStyle: '800',
+      color: '#f4f7f2',
+      backgroundColor: '#111a11',
+      stroke: '#071008',
+      strokeThickness: 2,
+      padding: { x: 13, y: 8 },
+      align: 'center',
+      wordWrap: { width: 430 },
+    }).setOrigin(0.5).setDepth(105).setAlpha(0);
+  }
+
+  private startBossChatter(): void {
+    this.time.delayedCall(450, () => this.showBossLine(true));
+    this.chatterTimer = this.time.addEvent({
+      delay: 2_400,
+      loop: true,
+      callback: () => this.showBossLine(),
+    });
+  }
+
+  private showBossLine(force = false): void {
+    if (
+      this.ended
+      || this.focusPaused
+      || this.session.state === BattleState.INTRO
+      || isTerminalBattleState(this.session.state)
+    ) return;
+    if (!force && this.time.now - this.lastBossLineAt < 1_200) return;
+
+    const runtime = getBattleRuntime();
+    const lines = runtime.boss.battleLines;
+    const lineNumber = this.battleLineIndex % lines.length;
+    const line = lines[lineNumber];
+    if (!line) return;
+    this.battleLineIndex += 1;
+    this.lastBossLineAt = this.time.now;
+
+    this.tweens.killTweensOf(this.bossSpeech);
+    this.bossSpeech.setText(`「${line}」`).setY(382).setAlpha(0).setScale(0.94);
+    this.tweens.add({
+      targets: this.bossSpeech,
+      y: 370,
+      alpha: 1,
+      scale: 1,
+      duration: 150,
+      ease: 'Back.Out',
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.bossSpeech,
+          alpha: 0,
+          y: 362,
+          delay: 1_650,
+          duration: 260,
+          ease: 'Sine.In',
+        });
+      },
+    });
   }
 
   private cancelPointerInteraction(): void {
@@ -1005,6 +1094,7 @@ export class BattleScene extends Phaser.Scene {
           vulnerableRemainingMs: this.vulnerableRemainingMs,
           weakPointTweenCount: this.boss.weakPointTweenCount,
           dangerOverlayAlpha: this.waveGuide.alpha,
+          pacing: this.currentPacing,
         };
       },
       projectileSnapshot: () => this.projectiles.activeProjectiles().map((projectile) => ({
@@ -1108,6 +1198,7 @@ export class BattleScene extends Phaser.Scene {
     this.touchLandscapeQuery = undefined;
     this.pauseResumeTimer?.remove(false);
     this.hitReliefTimer?.remove(false);
+    this.chatterTimer?.remove(false);
     this.clearVulnerabilityWindow();
     this.projectiles?.destroy();
     this.audio?.close();

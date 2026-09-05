@@ -50,7 +50,7 @@ export function planPaperRain(
     }
     const side = x < safeLaneCentre ? -1 : 1;
     const y = -55 - rng.range(0, 180);
-    const vy = rng.range(180, 235 + intensity * 34) * speedScale;
+    const vy = rng.range(220, 265 + intensity * 38) * speedScale;
     const vx = side * rng.range(4, 30) * speedScale;
     const perspectiveY = 820;
     const perspectiveTime = (perspectiveY - y) / Math.max(1, vy);

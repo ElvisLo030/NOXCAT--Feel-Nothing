@@ -30,6 +30,7 @@ import type {
   AttackPatternContext,
   AttackPatternHandle,
 } from '../patterns/types';
+import type { PacingScale } from './PacingDirector';
 import type { ProjectileSystem } from './ProjectileSystem';
 import {
   dangerZonesForPattern,
@@ -101,12 +102,13 @@ export class AttackDirector {
   private wallSafeGap = 650;
   private deadlineBeamY = 650;
   private activePattern?: AttackPatternHandle;
+  private pacing: PacingScale | null = null;
 
   constructor(
     private readonly dna: BossDNA,
     private readonly rng: SeededRng,
     private readonly projectiles: ProjectileSystem,
-    private readonly hooks: AttackDirectorHooks,
+    private readonly hooks: AttackDirectorHooks = {} as AttackDirectorHooks,
   ) {}
 
   get currentPattern(): PatternId {
@@ -160,6 +162,14 @@ export class AttackDirector {
     this.running = false;
     this.cancelPatternTimeline();
     this.projectiles.clearDangerous(true);
+  }
+
+  setPacingScale(scale: PacingScale | null): void {
+    this.pacing = scale;
+  }
+
+  get pacingScale(): PacingScale | null {
+    return this.pacing;
   }
 
   update(deltaMs: number, playerLives: number): void {
@@ -243,12 +253,16 @@ export class AttackDirector {
   }
 
   private phaseDuration(pattern: PatternId, stepDurationMs: number, phase: WavePhase): number {
-    if (phase === 'TELEGRAPH') return ATTACK_TELEGRAPH_MS[pattern];
-    if (phase === 'RECOVERY') return ATTACK_RECOVERY_MS[pattern];
-    return Math.max(
-      1,
-      stepDurationMs - ATTACK_TELEGRAPH_MS[pattern] - ATTACK_RECOVERY_MS[pattern],
-    );
+    const telegraph = ATTACK_TELEGRAPH_MS[pattern];
+    const recovery = ATTACK_RECOVERY_MS[pattern];
+    const isBeam = pattern === 'deadline_beam';
+    const telegraphScale = isBeam ? 1 : (this.pacing?.telegraphScale ?? 1);
+    const recoveryScale = isBeam ? 1 : (this.pacing?.recoveryScale ?? 1);
+    if (phase === 'TELEGRAPH') return Math.max(1, Math.round(telegraph * telegraphScale));
+    if (phase === 'RECOVERY') return Math.max(1, Math.round(recovery * recoveryScale));
+    const scaledTelegraph = telegraph * telegraphScale;
+    const scaledRecovery = recovery * recoveryScale;
+    return Math.max(1, Math.round(stepDurationMs - scaledTelegraph - scaledRecovery));
   }
 
   private advanceWavePhase(
@@ -259,7 +273,9 @@ export class AttackDirector {
     this.phaseElapsedMs = 0;
     if (this.wavePhase === 'TELEGRAPH') {
       this.wavePhase = 'ACTIVE';
-      const speedScale = playerLives <= 1 ? 0.87 : 1;
+      const baseLifeScale = playerLives <= 1 ? 0.87 : 1;
+      const pacingSpeed = this.pacing?.speedScale ?? 1;
+      const speedScale = baseLifeScale * pacingSpeed;
       this.activePattern = this.startPattern(pattern, intensity, speedScale);
       this.volley += 1;
     } else if (this.wavePhase === 'ACTIVE') {
@@ -300,7 +316,10 @@ export class AttackDirector {
     };
     switch (pattern) {
       case 'paper_rain': {
-        return runPaperRain(context, this.paperSafeLane);
+        return runPaperRain(
+          { ...context, speedScale: context.speedScale * 1.15 },
+          this.paperSafeLane,
+        );
       }
       case 'comment_crossfire':
         return runCommentCrossfire(context, this.commentSafeLane);
@@ -358,9 +377,10 @@ export class AttackDirector {
     } catch {
       // A presentation hook must never be able to stop deterministic attacks.
     }
-    return clampPlayerPosition(position ?? {
-      x: this.hooks.player.x,
-      y: this.hooks.player.y,
-    });
+    const livePlayer = this.hooks.player;
+    return clampPlayerPosition(position ?? (livePlayer ? {
+      x: livePlayer.x,
+      y: livePlayer.y,
+    } : undefined));
   }
 }
