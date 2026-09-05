@@ -266,6 +266,35 @@ describe('attack pattern fairness geometry', () => {
     expect(spawned).toEqual(initial);
   });
 
+  it('uses the BossDNA LLM lines for comment-crossfire projectiles', () => {
+    const commentLines = ['需求又轉彎', '昨天版本呢', '這裡再微調', '今晚能上嗎', '最終版加一'] as const;
+    const spawned: ProjectileConfig[] = [];
+    const projectiles = {
+      spawn: (config: ProjectileConfig) => { spawned.push(config); return null; },
+      activeProjectiles: () => [{ isDamage: true, friendly: false }],
+      activeBeams: () => [],
+      releaseDangerousForExit: () => undefined,
+    } as unknown as ProjectileSystem;
+    const dna = {
+      attacks: [{ pattern: 'comment_crossfire', intensity: 3, durationMs: 4_500 }] as const,
+      commentLines,
+    };
+    const director = new AttackDirector(
+      dna,
+      new SeededRng(12),
+      projectiles,
+      createPatternRuntime(),
+    );
+
+    director.start();
+    director.update(ATTACK_TELEGRAPH_MS.comment_crossfire, 3);
+
+    expect(spawned.length).toBeGreaterThanOrEqual(2);
+    expect(spawned.every((projectile) => (
+      commentLines.includes(projectile.text as typeof commentLines[number])
+    ))).toBe(true);
+  });
+
   it('keeps a reachable safe spot clear throughout every broad-angle flight', () => {
     for (const intensity of [1, 2, 3] as const) {
       for (const speedScale of [0.87, 1, 1.2]) {

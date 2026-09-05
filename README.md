@@ -95,7 +95,7 @@ OPENAI_TIMEOUT_MS=5500
 
 招式包含 `paper_rain`、`comment_crossfire`、`deadline_beam`、`closing_walls`、`revision_homing`、`returnable_burst`、`top_downpour`、`pulse_barrage`、`alternating_zipper`。其中 `top_downpour` 使用畫面正上方的獨立垂直透視射線，`pulse_barrage` 以齊射與停頓形成節奏，`alternating_zipper` 則左右交替加速；三者皆保留可預讀的安全通道。開發版與正式版預設共用完整九招池，AI 成功或離線 fallback 都以 BossDNA seed 洗牌，每輪九招各出現一次，下一輪重新洗牌且不與上一輪最後一招重複。選招與彈幕布局使用獨立 RNG，因此同一 BossDNA 重玩會重現選招順序，玩家移動不會改變下一輪的招式順序。API 的 BossDNA 仍維持三段設定，遊戲保留這三招各自的強度與時間，其餘招式使用既有平衡預設；重複指定同一招時採第一筆。`?demo=all` 已無須使用；`?demo=off` 僅在開發版保留原始三段固定序列，供單招診斷與既有測試使用，正式版忽略此參數。戰鬥布局與選招都不使用 `Math.random()`。
 
-AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念。生成分成兩個連續 API 呼叫，每批 6 句；loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句，受傷、反彈、弱點開啟與主要撞擊時也會觸發。
+AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念，以及 5 句每句最多 12 字、專供 `comment_crossfire` 文件使用的短註解。生成分成兩個連續 API 呼叫，每批 6 句戰鬥碎念；第一批同時產生短註解，loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句碎念，受傷、反彈、弱點開啟與主要撞擊時也會觸發；註解交叉火力則直接使用本局 LLM 產生的短註解，只有 AI 失敗時才回退固定文案。
 
 ## 相機與隱私
 

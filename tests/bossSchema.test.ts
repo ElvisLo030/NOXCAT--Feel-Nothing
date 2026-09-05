@@ -37,6 +37,23 @@ describe('BossDNASchema', () => {
     }).success).toBe(false);
   });
 
+  it('accepts exactly five concise AI comment-crossfire lines', () => {
+    const commentLines = ['需求又轉彎', '昨天版本呢', '這裡再微調', '今晚能上嗎', '最終版加一'];
+
+    expect(BossDNASchema.safeParse({
+      ...FALLBACK_BOSS,
+      commentLines,
+    }).success).toBe(true);
+    expect(BossDNASchema.safeParse({
+      ...FALLBACK_BOSS,
+      commentLines: commentLines.slice(0, 4),
+    }).success).toBe(false);
+    expect(BossDNASchema.safeParse({
+      ...FALLBACK_BOSS,
+      commentLines: ['太'.repeat(13), ...commentLines.slice(1)],
+    }).success).toBe(false);
+  });
+
   it.each([0, 4, 1.5])('rejects invalid intensity %s', (intensity) => {
     const candidate = {
       ...FALLBACK_BOSS,

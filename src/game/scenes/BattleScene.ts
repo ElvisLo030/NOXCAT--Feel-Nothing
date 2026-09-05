@@ -166,6 +166,7 @@ export class BattleScene extends Phaser.Scene {
       {
         attacks: fixedSequence ?? createAttackPool(runtime.boss.attacks),
         shuffleSeed: fixedSequence ? undefined : runtime.boss.seed,
+        commentLines: runtime.boss.commentLines,
       },
       new SeededRng(runtime.boss.seed),
       this.projectiles,
