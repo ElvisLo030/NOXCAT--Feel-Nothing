@@ -733,9 +733,6 @@ export class BattleScene extends Phaser.Scene {
         this.noxcat.cancelAim(this.aimAnchor.x, this.aimAnchor.y);
         this.hud.setStateMessage('PULL FARTHER');
         this.stateMessageHoldUntilMs = this.time.now + PULL_HINT_HOLD_MS;
-        this.time.delayedCall(PULL_HINT_HOLD_MS, () => {
-          if (this.vulnerableRemainingMs <= 0) this.hud.setStateMessage('DO EVERYTHING');
-        });
         return;
       }
       const speed = LAUNCH_SPEED * Phaser.Math.Clamp(this.aimPull / AIM_MAX_PULL, 0.62, 1);

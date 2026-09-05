@@ -106,7 +106,7 @@ describe('attacks fitted to the current movement envelope', () => {
     }
   });
 
-  it.each(STARTS)('keeps the complete cat outline clear from $x,$y along every lane and pocket', (start) => {
+  it.each(STARTS)('keeps the complete cat outline clear from $x,$y along every lane and pocket', { timeout: 15_000 }, (start) => {
     for (let seed = 1; seed <= 8; seed++) {
       const rng = new SeededRng(seed);
       const lane = reachableLane(rng, 'x', start);

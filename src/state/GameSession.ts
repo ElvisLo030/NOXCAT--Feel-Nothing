@@ -352,7 +352,8 @@ export class GameSession {
   get attackClockPaused(): boolean {
     return this.currentState === BattleState.VULNERABLE
       || this.currentState === BattleState.AIMING
-      || this.currentState === BattleState.LAUNCHED;
+      || this.currentState === BattleState.LAUNCHED
+      || this.currentState === BattleState.STAGGERED;
   }
 
   advanceTime(deltaMs: number, options: { ignoreAttackPause?: boolean } = {}): void {

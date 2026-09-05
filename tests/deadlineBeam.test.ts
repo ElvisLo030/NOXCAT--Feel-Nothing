@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { PLAYER_HIT_RADIUS, PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../src/game/constants';
 import {
   BEAM_HALF_THICKNESS,
+  BEAM_LENGTH,
   distanceToBeam,
   planDeadlineBeams,
 } from '../src/game/patterns/deadlineBeam';
@@ -34,6 +35,21 @@ describe('deadline beam volleys', () => {
           }
         }
         expect(pocket).toBe(true);
+
+        const corners = [
+          { x: PLAYER_MIN_X, y: PLAYER_MIN_Y },
+          { x: PLAYER_MAX_X, y: PLAYER_MIN_Y },
+          { x: PLAYER_MIN_X, y: PLAYER_MAX_Y },
+          { x: PLAYER_MAX_X, y: PLAYER_MAX_Y },
+        ];
+        for (const beam of beams) {
+          const cosine = Math.cos(beam.angle);
+          const sine = Math.sin(beam.angle);
+          for (const corner of corners) {
+            const along = (corner.x - beam.x) * cosine + (corner.y - beam.y) * sine;
+            expect(Math.abs(along)).toBeLessThanOrEqual(BEAM_LENGTH / 2);
+          }
+        }
       }
     }
     expect(counts.has(2)).toBe(true);

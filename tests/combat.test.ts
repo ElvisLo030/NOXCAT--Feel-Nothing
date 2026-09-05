@@ -203,6 +203,25 @@ describe('GameSession combat rules', () => {
     expect(session.transitions.at(-1)?.reason).toBe('time-expired');
   });
 
+  it('keeps the round clock frozen during stagger after a last-second hit', () => {
+    const session = new GameSession({ energy: ENERGY_MAX, roundDurationMs: 1_000 });
+    session.startBattle();
+    session.advanceTime(999);
+    landMainAttack(session);
+
+    expect(session.state).toBe(BattleState.STAGGERED);
+    expect(session.attackClockPaused).toBe(true);
+    session.advanceTime(800);
+    expect(session.state).toBe(BattleState.STAGGERED);
+    expect(session.remainingMs).toBe(1);
+
+    expect(session.endStagger()).toBe(true);
+    expect(session.attackClockPaused).toBe(false);
+    session.advanceTime(1);
+    expect(session.state).toBe(BattleState.LOST);
+    expect(session.transitions.at(-1)?.reason).toBe('time-expired');
+  });
+
   it('loses cleanly when the round timer expires', () => {
     const session = new GameSession({ roundDurationMs: 1_000 });
     session.startBattle();

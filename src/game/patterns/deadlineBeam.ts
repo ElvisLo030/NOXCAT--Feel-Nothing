@@ -53,14 +53,20 @@ export function planDeadlineBeams(
   safeSpot: PlayerPosition = reachableSafeSpot(rng),
 ): BeamLayout[] {
   const count = intensity >= 3 ? 3 : intensity === 1 ? 2 : rng.int(2, 3);
+  const midX = (PLAYER_MIN_X + PLAYER_MAX_X) / 2;
+  const midY = (PLAYER_MIN_Y + PLAYER_MAX_Y) / 2;
   return rng.shuffled([...BEAM_ANGLES]).slice(0, count).map((angle) => {
-    const normal = { x: -Math.sin(angle), y: Math.cos(angle) };
-    const towardCentre = ((PLAYER_MIN_X + PLAYER_MAX_X) / 2 - safeSpot.x) * normal.x
-      + ((PLAYER_MIN_Y + PLAYER_MAX_Y) / 2 - safeSpot.y) * normal.y;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const normal = { x: -sine, y: cosine };
+    const towardCentre = (midX - safeSpot.x) * normal.x + (midY - safeSpot.y) * normal.y;
     const side = towardCentre < 0 ? -1 : 1;
     const offset = DODGE_BODY_CLEARANCE + BEAM_HALF_THICKNESS + 26 + rng.range(4, 18);
-    return { x: safeSpot.x + normal.x * offset * side,
-      y: safeSpot.y + normal.y * offset * side, angle };
+    const lineX = safeSpot.x + normal.x * offset * side;
+    const lineY = safeSpot.y + normal.y * offset * side;
+    // 沿雷射方向對齊活動區中心，有限線段才能蓋滿 dodge box；避難點只靠法線偏移。
+    const along = (midX - lineX) * cosine + (midY - lineY) * sine;
+    return { x: lineX + cosine * along, y: lineY + sine * along, angle };
   });
 }
 
