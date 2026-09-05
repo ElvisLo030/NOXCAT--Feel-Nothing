@@ -7,16 +7,12 @@ import { createTunnelTrajectory, retargetTunnelTrajectory, sampleTunnelProjectio
 import { PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../src/game/constants';
 
 describe('attack guidance', () => {
-  it('gives all nine attacks distinct names and actionable warning instructions', () => {
+  it('gives all nine attacks distinct names and one consistent red-zone instruction', () => {
     const cues = PatternIdSchema.options.map((id) => ATTACK_CUES[id]);
     expect(new Set(cues.map((cue) => cue.name)).size).toBe(9);
     for (const cue of cues) {
-      expect(cue.instruction.length).toBeGreaterThan(3);
-      expect(cue.instruction.length).toBeLessThanOrEqual(20);
+      expect(cue.instruction).toBe('離開紅色區域');
     }
-    expect(ATTACK_CUES.deadline_beam.instruction).toContain('上下');
-    expect(ATTACK_CUES.returnable_burst.instruction).toContain('反彈');
-    expect(ATTACK_CUES.comment_crossfire.instruction).toContain('光圈');
     expect(COMBAT_COLORS.danger).toBe(0xff5364);
     expect(COMBAT_COLORS.danger).not.toBe(COMBAT_COLORS.safe);
   });

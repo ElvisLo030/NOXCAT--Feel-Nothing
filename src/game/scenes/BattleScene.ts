@@ -30,7 +30,7 @@ import { BattleState, isTerminalBattleState } from '../events';
 import { getBattleRuntime, type BattleFaceSnapshot } from '../runtime';
 import { AimGuide } from '../ui/AimGuide';
 import { Hud } from '../ui/Hud';
-import { ATTACK_CUES } from '../ui/attackCues';
+import { ATTACK_CUES, DANGER_INSTRUCTION } from '../ui/attackCues';
 import { AttackDirector, type DangerZoneHint } from '../systems/AttackDirector';
 import { AudioSystem } from '../systems/AudioSystem';
 import {
@@ -187,7 +187,7 @@ export class BattleScene extends Phaser.Scene {
           if (phase === 'TELEGRAPH') {
             this.showDangerZones(dangerZones ?? []);
             this.hud.setStateMessage(cue.instruction, true);
-            this.hud.flash(`⚠ ${cue.name}`, 850, true);
+            this.hud.flash(DANGER_INSTRUCTION, 850, true);
           } else if (phase === 'ACTIVE') {
             this.fadeDangerZones();
             this.hud.setStateMessage(cue.instruction, true);
@@ -581,8 +581,7 @@ export class BattleScene extends Phaser.Scene {
       this.waveGuide.lineStyle(2, COMBAT_COLORS.danger, 0.8).strokeCircle(x, y, radius)
         .lineBetween(x - 10, y, x + 10, y).lineBetween(x, y - 10, x, y + 10);
     }
-    this.hud.setStateMessage(cards.some((card) => card.homingRemainingMs > 0)
-      ? '紅圈追蹤中・準備移開' : '已鎖定・離開紅圈', true);
+    this.hud.setStateMessage(DANGER_INSTRUCTION, true);
   }
 
   private showIntro(name: string, line: string, source: 'ai' | 'fallback'): void {
