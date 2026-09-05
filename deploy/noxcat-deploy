@@ -20,6 +20,8 @@ if ! flock -n 9; then
 fi
 
 install -d -m 0755 "${releases_dir}"
+install -d -m 0750 -o "${build_user}" -g "${build_user}" \
+  "$(dirname "${npm_cache}")" "${npm_cache}"
 readonly release_dir="${releases_dir}/${revision}"
 previous_target=''
 if [[ -L "${deploy_root}/current" ]]; then
