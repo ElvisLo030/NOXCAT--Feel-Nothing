@@ -10,6 +10,7 @@ import {
   type BossInitialBatch,
 } from '../../src/ai/bossSchema.js';
 import { createFallbackBoss } from '../../src/ai/fallbackBoss.js';
+import { createOllamaFetch } from './ollamaClient.js';
 
 export const BOSS_SYSTEM_PROMPT = `You convert one short user annoyance into a playful, non-violent cartoon boss configuration for a 180-second mobile browser game.
 
@@ -123,6 +124,7 @@ function createClient(options: GenerateBossOptions): OpenAI {
     baseURL,
     maxRetries: 0,
     timeout: parsePositiveInteger(process.env.OPENAI_TIMEOUT_MS, 5_500),
+    fetch: createOllamaFetch(globalThis.fetch),
   });
 }
 
