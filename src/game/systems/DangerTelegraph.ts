@@ -38,7 +38,21 @@ export interface DangerTargetHint {
   radius: number;
 }
 
-export type DangerZoneHint = DangerRectHint | DangerTargetHint;
+export interface DangerRayHint {
+  kind: 'ray';
+  from: ProjectileDepthPoint;
+  to: ProjectileDepthPoint;
+  halfWidth: number;
+}
+
+export interface SafeSpotHint {
+  kind: 'safe';
+  x: number;
+  y: number;
+  radius: number;
+}
+
+export type DangerZoneHint = DangerRectHint | DangerTargetHint | DangerRayHint | SafeSpotHint;
 
 export interface DangerPerspectiveQuad {
   readonly topLeft: ProjectileDepthPoint;

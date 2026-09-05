@@ -2,12 +2,13 @@ import type Phaser from 'phaser';
 import type { BossDNA, PatternId } from '../../ai/bossSchema';
 import type { SeededRng } from '../../utils/rng';
 import type { Noxcat } from '../entities/Noxcat';
+import { PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import {
   CLOSING_WALL_SAFE_GAP_HALF_HEIGHT,
   runClosingWalls,
 } from '../patterns/closingWalls';
 import {
-  COMMENT_SAFE_LANE_HALF_HEIGHT,
+  commentCrossfireLayout,
   runCommentCrossfire,
 } from '../patterns/commentCrossfire';
 import { runDeadlineBeam } from '../patterns/deadlineBeam';
@@ -36,6 +37,7 @@ import {
   dangerZonesForPattern,
   type DangerZoneHint,
   type SafeLaneHint,
+  type SafeSpotHint,
 } from './DangerTelegraph';
 
 export type WavePhase = 'TELEGRAPH' | 'ACTIVE' | 'RECOVERY';
@@ -97,7 +99,7 @@ export class AttackDirector {
   private running = false;
   private returnableTutorialShown = false;
   private paperSafeLane = 270;
-  private commentSafeLane = 650;
+  private commentLayout?: ReturnType<typeof commentCrossfireLayout>;
   private returnableSafeLane = 270;
   private wallSafeGap = 650;
   private deadlineBeamY = 650;
@@ -123,8 +125,7 @@ export class AttackDirector {
     switch (this.currentPattern) {
       case 'paper_rain':
         return { axis: 'vertical', center: this.paperSafeLane, halfWidth: PAPER_SAFE_LANE_HALF_WIDTH };
-      case 'comment_crossfire':
-        return { axis: 'horizontal', center: this.commentSafeLane, halfWidth: COMMENT_SAFE_LANE_HALF_HEIGHT };
+
       case 'closing_walls':
         return { axis: 'horizontal', center: this.wallSafeGap, halfWidth: CLOSING_WALL_SAFE_GAP_HALF_HEIGHT };
       case 'returnable_burst':
@@ -134,13 +135,21 @@ export class AttackDirector {
     }
   }
 
+  get currentSafeSpot(): SafeSpotHint | undefined {
+    return this.currentPattern === 'comment_crossfire' ? this.commentLayout?.safeSpot : undefined;
+  }
+
   get currentDangerZones(): readonly DangerZoneHint[] {
-    return dangerZonesForPattern(
+    const zones = dangerZonesForPattern(
       this.currentPattern,
       this.currentSafeLane,
       this.playerPosition(),
       this.deadlineBeamY,
     );
+    if (this.currentPattern === 'comment_crossfire' && this.commentLayout) {
+      zones.push(...this.commentLayout.rays.map((ray) => ray.warning), this.commentLayout.safeSpot);
+    }
+    return zones;
   }
 
   start(): void {
@@ -225,16 +234,18 @@ export class AttackDirector {
         ? moveTowards(candidate, clamp(player.x, 90, 450), 54)
         : candidate;
     } else if (this.currentPattern === 'comment_crossfire') {
-      this.commentSafeLane = clamp(player?.y ?? this.rng.range(520, 790), 500, 814);
+      // 隨機組合在預警開始時決定，發射時沿用，避免箭頭與實際方向不符。
+      this.commentLayout = commentCrossfireLayout(this.rng, this.dna.attacks[this.stepIndex]!.intensity);
     } else if (this.currentPattern === 'closing_walls') {
-      const candidate = this.rng.range(535, 755);
+      const maximumGapY = PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
+      const candidate = this.rng.range(PLAYER_MIN_Y, maximumGapY);
       this.wallSafeGap = player
-        ? moveTowards(candidate, clamp(player.y, 535, 805), 42)
+        ? moveTowards(candidate, clamp(player.y, PLAYER_MIN_Y, maximumGapY), 42)
         : candidate;
     } else if (this.currentPattern === 'returnable_burst') {
       this.returnableSafeLane = clamp(player?.x ?? this.rng.range(150, 390), 70, 470);
     } else if (this.currentPattern === 'deadline_beam') {
-      this.deadlineBeamY = this.rng.range(500, 790);
+      this.deadlineBeamY = this.rng.range(PLAYER_MIN_Y + 24, PLAYER_MAX_Y - 24);
     }
     this.hooks.onPatternChanged?.(this.currentPattern);
     this.hooks.onWavePhaseChanged?.(
@@ -322,7 +333,7 @@ export class AttackDirector {
         );
       }
       case 'comment_crossfire':
-        return runCommentCrossfire(context, this.commentSafeLane);
+        return runCommentCrossfire(context, this.commentLayout);
       case 'deadline_beam':
         return runDeadlineBeam(context, this.deadlineBeamY);
       case 'closing_walls': {

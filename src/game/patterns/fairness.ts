@@ -1,14 +1,11 @@
-import { PLAYER_HIT_RADIUS } from '../constants';
+import { PLAYER_HIT_RADIUS, PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
+
+export { PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 
 export interface PlayerPosition {
   readonly x: number;
   readonly y: number;
 }
-
-export const PLAYER_MIN_X = 46;
-export const PLAYER_MAX_X = 494;
-export const PLAYER_MIN_Y = 430;
-export const PLAYER_MAX_Y = 884;
 
 /** Near-plane attack centres intentionally extend past both screen edges. */
 export const ATTACK_NEAR_MIN_X = -40;

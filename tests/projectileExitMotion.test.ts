@@ -12,6 +12,21 @@ import {
 } from '../src/game/systems/ProjectileExitMotion';
 
 describe('projectile offscreen continuation', () => {
+  it('keeps a side-fired card on its portal ray after the near-plane handoff', () => {
+    const origin = { x: -24, y: 750 };
+    const target = { x: 90, y: 747 };
+    const authoredVelocity = { x: 295, y: -12 };
+    const trajectory = createTunnelTrajectory(
+      { x: -170, y: 747 }, authoredVelocity, 28, target, 1_500, origin,
+    );
+    const velocity = initialProjectileExitVelocity(trajectory, authoredVelocity);
+    const ray = { x: target.x - origin.x, y: target.y - origin.y };
+
+    expect(ray.x * velocity.y - ray.y * velocity.x).toBeCloseTo(0, 8);
+    expect(velocity.x).toBeGreaterThan(0);
+    expect(velocity.y).toBeLessThan(0);
+  });
+
   it('never slows at the near plane and continues on the same Boss-origin ray', () => {
     const authoredVelocity = { x: 0, y: 230 };
     const spawn = { x: 90, y: -120 };
