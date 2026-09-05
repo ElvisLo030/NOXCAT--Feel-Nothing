@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | ![攻擊危險區](docs/screenshots/danger-telegraph-mobile.png) | ![共享消失點射入](docs/screenshots/attack-perspective-mobile.png) | ![Boss 爆炸塌落](docs/screenshots/boss-collapse-mobile.png) |
 
-視覺以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。Boss 主體改用依使用者提供概念圖生成、再抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，因此既保留概念圖質感也能反映戰鬥狀態。最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。開始頁使用未修改的官方 Logo；戰鬥角色使用依官方 Logo 比例重繪的平面 SVG。兩顆乾淨的官方主綠 `#91D500` 單色橢圓大眼、可選配額前綠鏡護目鏡、固定碰撞圓及三層貼合輪廓的萊姆綠光暈以獨立圖層即時計算；首頁角色另以對稱的三層 drop shadow 沿整個輪廓發光。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 彈簧。Boss 文件共用地板消失點；每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依縱深取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。一般文件與反彈文件分別使用生成後抽離成透明背景的 `paper-generated-v1.png` 與 `returnable-generated-v1.png`；近景基準降為 40×52 logical px，並同步縮小 Mesh 多邊形碰撞面。Boss 射出的文件會先完成左右 lane 的梯形透視校正，再把整張剛性紙面依 seeded RNG 以非零角速度隨機順時針或逆時針旋轉；碰撞四角使用相同的後旋轉矩陣。遠景不參與碰撞，進入近景時可見中心與實際文件四角精確交接，低 FPS 越界幀則使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口的獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
+視覺以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。Boss 主體改用依使用者提供概念圖生成、再抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，因此既保留概念圖質感也能反映戰鬥狀態。最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。開始頁使用未修改的官方 Logo；首頁與戰鬥角色改用五張完整透明 PNG，依左右方向與移動速度切換正面／側面姿勢；按住角色向後拉時立即切換專用向上姿勢，放開朝 Boss 爆衝時繼續沿用。眼睛、四肢、尾巴與額前綠鏡護目鏡已直接包含在 PNG 中，護目鏡固定配戴；固定碰撞範圍與兩層低透明萊姆綠光暈仍由遊戲獨立計算。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 彈簧。Boss 文件共用地板消失點；每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依縱深取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。一般文件與反彈文件分別使用生成後抽離成透明背景的 `paper-generated-v1.png` 與 `returnable-generated-v1.png`；近景基準降為 40×52 logical px，並同步縮小 Mesh 多邊形碰撞面。Boss 射出的文件會先完成左右 lane 的梯形透視校正，再把整張剛性紙面依 seeded RNG 以非零角速度隨機順時針或逆時針旋轉；碰撞四角使用相同的後旋轉矩陣。遠景不參與碰撞，進入近景時可見中心與實際文件四角精確交接，低 FPS 越界幀則使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口的獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
 
 ## 技術棧
 
@@ -83,10 +83,10 @@ OPENAI_TIMEOUT_MS=5500
 
 ## 操作
 
-- 手機：單指拖曳 NOXCAT；角色會停在手指上方，避免遮擋。
+- 手機：單指拖曳 NOXCAT；滑鼠／觸控座標對準角色正中央。
 - 手機戰場會監聽 `visualViewport` 高度，在 Safari／Chrome 網址列展開、收合或旋轉時即時讓 canvas 填滿可見螢幕。540×960 是美術基準，實際相機使用單一等比 zoom 並在較長或較寬的裝置延伸可視世界；上下 HUD 錨定即時可視邊界，因此不會留下 letterbox 黑邊，也不會把角色與文件拉扁。
 - 桌面：拖曳、方向鍵或 WASD。
-- 額前護目鏡預設配戴，可在開始頁關閉；重玩與換一個煩惱會沿用目前選擇。
+- 角色固定配戴額前護目鏡；完整 PNG 已包含護目鏡，因此開始頁不提供開關。
 - 每波先有 500–750ms 透視危險區預警；亮起的斜紋梯形／錐形會受攻擊，暗處才是安全路徑；框內縱向斜線與地板格線共用 Boss 消失點，不使用固定角度貼圖。紙張雨的近端範圍延伸到左右畫面外，最左／最右站位也會被掃過；斜向留言與文件牆會真正從左右牆口交錯射入，並分別保留安全高度或緩慢移動的缺口。反彈波先射 3–4 張普通文件，1,250ms 時解除其傷害並讓它們各自高速飛離，隔 240ms 才在獨立路徑射出唯一一張深色綠框、環形箭頭文件，並保留至少 650ms 近景操作時間；綠色標記文件本身不會傷害玩家，只有高速碰撞才會將它反射。一般波結束後只保留 360–500ms recovery；彈幕提前清空時也會在最低可讀時間後立刻收尾，未離場卡片不會一起淡出。
 - 靠近彈幕但不碰到會擦彈充能；每顆彈幕只計一次。
 - 帶空心框與旋轉箭頭的文件可在高速移動時撞回 Boss。
@@ -111,17 +111,17 @@ AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥�
 
 ## 官方 NOXCAT 素材
 
-開發者本機可將主辦方提供的官方素材包與 `NOXCAT IP_Usage Guidelines.pdf` 放在 `docs/official-assets-20260904/`；該目錄已列入 `.gitignore`，不屬於此 repo 的發布內容。開始頁使用未變形、未改色且不受掃描線覆蓋的官方白色 Logo；戰鬥角色依收到的 Usage Guidelines 所載「重製／姿勢與表情／遊戲資產化」方向，重繪成 `public/assets/ip/noxcat/noxcat-logo-bun-v5.svg`：比例約 1.1:1、兩耳集中於前半部、底部是一段清楚的水平平底，再以兩個獨立平面圖層補上官方主綠橢圓大眼與預設開啟的可選額前綠鏡護目鏡，並由程式即時做果凍變形。
+開發者本機可將主辦方提供的官方素材包與 `NOXCAT IP_Usage Guidelines.pdf` 放在 `docs/official-assets-20260904/`；該目錄已列入 `.gitignore`，不屬於此 repo 的發布內容。開始頁使用未變形、未改色且不受掃描線覆蓋的官方白色 Logo；角色則使用 `public/assets/ip/noxcat/` 內五張完整透明 PNG，包含左右正面、側面與拉弓／向上爆衝姿勢。角色的眼睛、四肢、尾巴及額前綠鏡護目鏡均保留在原圖中，再由程式即時套用果凍變形。
 
 收到的壓縮包沒有 Guidelines 明稱應隨附且衝突時優先適用的 `NOXCAT Asset Licence`。因此現有文件不足以證明最終提交、公開散布或活動後使用的完整權利；正式交付前必須向主辦方取得並審閱該授權文件。
 
 1. 官方 Logo 固定使用 `public/assets/ip/noxcat/noxcat-logo-official-white.png`，不旋轉、不改色、不加特效、不重新排字。
-2. 戰鬥衍生角色、眼睛、護目鏡與 hit flash 經 `src/assets/AssetRegistry.ts` 統一載入；Scene 與系統沒有散落路徑。
+2. 五張完整角色 PNG 與 hit flash 經 `src/assets/AssetRegistry.ts` 統一載入；Scene 與系統沒有散落路徑。
 3. 角色維持官方主黑貓形、尖耳、兩顆 `#91D500` 發光大眼、額前綠鏡護目鏡與綠色單一高彩度強調色。
 4. 原始素材包不納入 Git；repo 內仍存在的 NOXCAT Logo、衍生角色與呈現圖不受本專案 GPL 授權。素材限本次黑客松使用；活動後若繼續公開、上架或商業化，須先取得 NOXCAT 書面同意。
 5. `public/assets/boss/boss-office-base-v1.png` 是依本專案概念圖生成的遊戲衍生美術，不是官方原始素材；其角色／品牌相關使用仍受相同的提交與公開散布權利確認限制。
 
-戰鬥 SVG 是依官方 Logo 比例重繪的可動畫遊戲衍生角色，不宣稱為未修改的官方 Logo；開始頁 wordmark 才是原封不動的官方檔案。
+戰鬥角色使用完整透明 PNG 姿勢圖；開始頁 wordmark 則是原封不動的官方檔案。
 
 ## 授權
 
@@ -179,9 +179,9 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 
 ## 已知限制
 
-- 戰鬥角色是依官方 Logo 輪廓重繪、供果凍變形使用的衍生遊戲資產；它不是未修改的官方 Logo。開始頁 wordmark 才是官方原檔。
+- 戰鬥角色使用五張完整透明 PNG，並在遊戲中套用果凍變形；開始頁 wordmark 是官方原檔。
 - 收到的官方素材壓縮包缺少 Guidelines 所稱的 companion `NOXCAT Asset Licence`，在取得並審閱前不能宣稱已確認完整提交或公開散布權利。
-- 指南將額前綠鏡護目鏡，以及含尾巴與四肢的黑貓輪廓列為核心識別；本遊戲依產品需求允許關閉護目鏡，並採用省略尾巴／四肢的 Logo 紅豆麵包輪廓。正式提交前應取得權利方對這兩項設計的書面確認。
+- 角色 PNG 保留額前綠鏡護目鏡、尾巴與四肢等核心識別；護目鏡固定配戴。正式提交前仍應確認 PNG 素材的適用授權。
 - 此環境未設定 `OPENAI_API_KEY`；Structured Outputs、Zod 驗證、mock AI success 與實際 fallback 均已通過，但仍需在本機 `.env` 設定有效 key，確認真實 API 回傳 `source: ai` 並完整玩完一局。
 - Playwright 的 Pixel 5／iPhone 13 是桌面端裝置 profile，不等同真 Android Chrome／iPhone Safari。真機觸控、safe-area、旋轉、音訊解鎖、切換分頁恢復、相機系統指示燈關閉、不同光線／角度與中階手機 55–60 FPS 仍需人工驗收。
 - 自動化測試以合成、完全不開啟真實鏡頭的 frame 驗證相機成功、權限拒絕、略過、Neutral 加成／抑制、無臉與資源清理；它不等同實體相機驗收。

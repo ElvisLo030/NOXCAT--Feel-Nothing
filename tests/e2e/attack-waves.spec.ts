@@ -151,8 +151,8 @@ async function moveToBattlePosition(page: Page, x: number, y: number): Promise<v
     x: box.x + (worldX - viewport.left) * box.width / viewport.width,
     y: box.y + (worldY - viewport.top) * box.height / viewport.height,
   });
-  const start = screen(cat.x, cat.y + 72);
-  const target = screen(x, y + 72);
+  const start = screen(cat.x, cat.y);
+  const target = screen(x, y);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 5 });
@@ -195,7 +195,7 @@ test('a wave progresses through a clear recovery before the next pattern', async
     x: canvasBox.x + canvasBox.width * (x / 540),
     y: canvasBox.y + canvasBox.height * (y / 960),
   });
-  const start = screenPoint(cat.x, cat.y + 72);
+  const start = screenPoint(cat.x, cat.y);
   const safeTarget = screenPoint(telegraph.safeLane.center, 892);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();

@@ -152,7 +152,6 @@ export class BattleScene extends Phaser.Scene {
     this.waveGuide = this.add.graphics().setDepth(-4).setAlpha(0);
     this.boss = new Boss(this, runtime.boss.bossName, runtime.boss.weakPointLabel);
     this.noxcat = new Noxcat(this);
-    this.noxcat.setGogglesVisible(runtime.gogglesVisible);
     this.projectiles = new ProjectileSystem(this);
     this.hud = new Hud(this, runtime.boss.bossName);
     this.hud.relayout(this.viewportLayout);

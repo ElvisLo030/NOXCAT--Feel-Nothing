@@ -1,27 +1,27 @@
 import Phaser from 'phaser';
 import { PALETTE } from '../theme/palette';
 import {
-  NOXCAT_EYES,
-  NOXCAT_FACE_TEXTURE,
-  NOXCAT_GOGGLE_LENSES,
   NOXCAT_OFFICIAL_BLACK,
-  NOXCAT_OFFICIAL_GREEN,
   sampleNoxcatBunOutline,
 } from './noxcatDesign';
 
 export type AssetKey =
-  | 'noxcat.body'
-  | 'noxcat.eyes'
-  | 'noxcat.goggles'
+  | 'noxcat.front-left'
+  | 'noxcat.front-right'
+  | 'noxcat.side-left'
+  | 'noxcat.side-right'
+  | 'noxcat.up'
   | 'noxcat.hit'
   | 'boss.crt'
   | 'projectile.paper'
   | 'projectile.returnable';
 
 const textureKeys: Record<AssetKey, string> = {
-  'noxcat.body': 'flat-noxcat-logo-bun-v5',
-  'noxcat.eyes': 'noxcat-runtime-eyes',
-  'noxcat.goggles': 'noxcat-runtime-goggles',
+  'noxcat.front-left': 'noxcat-png-front-left',
+  'noxcat.front-right': 'noxcat-png-front-right',
+  'noxcat.side-left': 'noxcat-png-side-left',
+  'noxcat.side-right': 'noxcat-png-side-right',
+  'noxcat.up': 'noxcat-png-up',
   'noxcat.hit': 'noxcat-runtime-hit',
   'boss.crt': 'boss-runtime-crt',
   'projectile.paper': 'projectile-runtime-paper',
@@ -37,26 +37,16 @@ export class AssetRegistry {
   static readonly usesOfficialNoxcat = true;
 
   static preload(scene: Phaser.Scene): void {
-    const noxcatKey = this.key('noxcat.body');
-    if (!scene.textures.exists(noxcatKey)) {
-      scene.load.svg(noxcatKey, '/assets/ip/noxcat/noxcat-logo-bun-v5.svg', {
-        width: 400,
-        height: 368,
-      });
-    }
-    const eyesKey = this.key('noxcat.eyes');
-    if (!scene.textures.exists(eyesKey)) {
-      scene.load.svg(eyesKey, '/assets/ip/noxcat/noxcat-eyes.svg', {
-        width: NOXCAT_FACE_TEXTURE.width,
-        height: NOXCAT_FACE_TEXTURE.height,
-      });
-    }
-    const gogglesKey = this.key('noxcat.goggles');
-    if (!scene.textures.exists(gogglesKey)) {
-      scene.load.svg(gogglesKey, '/assets/ip/noxcat/noxcat-goggles.svg', {
-        width: NOXCAT_FACE_TEXTURE.width,
-        height: NOXCAT_FACE_TEXTURE.height,
-      });
+    const noxcatImages: ReadonlyArray<[AssetKey, string]> = [
+      ['noxcat.front-left', '/assets/ip/noxcat/noxcat-L-front.png'],
+      ['noxcat.front-right', '/assets/ip/noxcat/noxcat-R-front.png'],
+      ['noxcat.side-left', '/assets/ip/noxcat/noxcat-L-side.png'],
+      ['noxcat.side-right', '/assets/ip/noxcat/noxcat-R-side.png'],
+      ['noxcat.up', '/assets/ip/noxcat/noxcat-up.png'],
+    ];
+    for (const [asset, path] of noxcatImages) {
+      const key = this.key(asset);
+      if (!scene.textures.exists(key)) scene.load.image(key, path);
     }
     const bossKey = this.key('boss.crt');
     if (!scene.textures.exists(bossKey)) {
@@ -77,60 +67,30 @@ export class AssetRegistry {
   }
 
   static createRuntimeTextures(scene: Phaser.Scene): void {
-    this.makeNoxcatBody(scene);
-    this.makeNoxcatEyes(scene);
-    this.makeNoxcatGoggles(scene);
+    this.makeNoxcatFallbacks(scene);
     this.makeHitFlash(scene);
     this.makeBossFallback(scene);
     this.makePaper(scene, false);
     this.makePaper(scene, true);
   }
 
-  private static makeNoxcatBody(scene: Phaser.Scene): void {
-    const key = this.key('noxcat.body');
-    if (scene.textures.exists(key)) return;
-    const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-    // Official primary black from the supplied character usage guide.
-    graphics.fillStyle(NOXCAT_OFFICIAL_BLACK, 1);
-    graphics.fillPoints(sampleNoxcatBunOutline(), true, true);
-    graphics.generateTexture(key, 200, 184);
-    graphics.destroy();
-  }
-
-  private static makeNoxcatEyes(scene: Phaser.Scene): void {
-    const key = this.key('noxcat.eyes');
-    if (scene.textures.exists(key)) return;
-    const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-
-    // Keep the Logo's clean oval language: one unbroken official-green shape per eye.
-    graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 1);
-    for (const eye of NOXCAT_EYES) {
-      graphics.fillEllipse(eye.x, eye.y, eye.width, eye.height);
+  private static makeNoxcatFallbacks(scene: Phaser.Scene): void {
+    const assets: AssetKey[] = [
+      'noxcat.front-left',
+      'noxcat.front-right',
+      'noxcat.side-left',
+      'noxcat.side-right',
+      'noxcat.up',
+    ];
+    for (const asset of assets) {
+      const key = this.key(asset);
+      if (scene.textures.exists(key)) continue;
+      const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
+      graphics.fillStyle(NOXCAT_OFFICIAL_BLACK, 1);
+      graphics.fillPoints(sampleNoxcatBunOutline(), true, true);
+      graphics.generateTexture(key, 200, 184);
+      graphics.destroy();
     }
-
-    graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
-    graphics.destroy();
-  }
-
-  private static makeNoxcatGoggles(scene: Phaser.Scene): void {
-    const key = this.key('noxcat.goggles');
-    if (scene.textures.exists(key)) return;
-    const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-
-    // A separate optional flat accessory: dark strap, medium-grey frame and
-    // bridge, with the official green as the only saturated lens colour.
-    graphics.lineStyle(3, NOXCAT_OFFICIAL_BLACK, 1);
-    graphics.lineBetween(1, 8, 51, 8);
-    graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 0.78);
-    graphics.lineStyle(2, 0xb2b2b2, 1);
-    for (const lens of NOXCAT_GOGGLE_LENSES) {
-      graphics.fillRoundedRect(lens.x, lens.y, lens.width, lens.height, lens.radius);
-      graphics.strokeRoundedRect(lens.x, lens.y, lens.width, lens.height, lens.radius);
-    }
-    graphics.lineBetween(23, 7, 29, 7);
-
-    graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
-    graphics.destroy();
   }
 
   private static makeHitFlash(scene: Phaser.Scene): void {

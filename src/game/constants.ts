@@ -20,7 +20,6 @@ export const PLAYER_LAUNCH_RADIUS = 50;
 export const BOSS_WEAK_POINT_RADIUS = 38;
 export const PLAYER_INVULNERABLE_MS = 1_100;
 export const POST_HIT_RELIEF_MS = 1_500;
-export const FINGER_OFFSET_Y = 72;
 export const MAX_FOLLOW_SPEED = 1_500;
 export const REFLECT_MIN_SPEED = 520;
 

@@ -15,7 +15,6 @@ import {
 } from '../systems/JellyMotionSystem';
 import {
   AIM_MAX_PULL,
-  FINGER_OFFSET_Y,
   GAME_HEIGHT,
   GAME_WIDTH,
   MAX_FOLLOW_SPEED,
@@ -40,7 +39,8 @@ export interface NoxcatVisualSnapshot {
   scaleX: number;
   scaleY: number;
   depthScale: number;
-  eyeX: number;
+  bodyTexture: string;
+  bodyPose: 'front' | 'side' | 'up';
   activeGhosts: number;
   activeDroplets: number;
   ghostLimit: number;
@@ -49,11 +49,6 @@ export interface NoxcatVisualSnapshot {
   glowOuterAlpha: number;
   bodyDisplayWidth: number;
   bodyDisplayHeight: number;
-  eyeDisplayWidth: number;
-  eyeDisplayHeight: number;
-  goggleDisplayWidth: number;
-  goggleDisplayHeight: number;
-  goggleVisible: boolean;
   hitRadius: number;
 }
 
@@ -67,14 +62,14 @@ interface GooDroplet {
 
 // Compact enough to leave readable dodge space on a 390px-wide phone while
 // retaining the official logo silhouette. The fixed hit circle stays separate.
-const BODY_DISPLAY_WIDTH = 138;
-const BODY_DISPLAY_HEIGHT = 126;
-const EYE_DISPLAY_WIDTH = 57;
-const EYE_DISPLAY_HEIGHT = 48;
-const EYE_BASE_X = 30;
-const FACE_BASE_Y = -4;
-const EYE_TEXTURE_WIDTH = 52;
-const EYE_TEXTURE_HEIGHT = 44;
+const FRONT_DISPLAY_WIDTH = 159;
+const FRONT_DISPLAY_HEIGHT = 116;
+const SIDE_DISPLAY_WIDTH = 174;
+const SIDE_DISPLAY_HEIGHT = 116;
+const UP_DISPLAY_WIDTH = 122;
+const UP_DISPLAY_HEIGHT = 183;
+const COLLISION_DISPLAY_WIDTH = 132;
+const COLLISION_DISPLAY_HEIGHT = 108;
 const DROPLET_COUNT = 6;
 const GHOST_COUNT = 8;
 const COLLISION_OUTLINE = sampleNoxcatBunOutline(8);
@@ -86,8 +81,6 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   private readonly bodyImage: Phaser.GameObjects.Image;
   private readonly bodyGlowLayers: Phaser.GameObjects.Image[];
-  private readonly eyes: Phaser.GameObjects.Image;
-  private readonly goggles: Phaser.GameObjects.Image;
   private readonly ghosts: Phaser.GameObjects.Image[];
   private readonly droplets: GooDroplet[];
   private readonly target = new Phaser.Math.Vector2();
@@ -108,6 +101,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
   private ghostLimit = GHOST_COUNT;
   private dropletLimit = DROPLET_COUNT;
   private lastDirection = -1;
+  private bodyPose: 'front' | 'side' | 'up' = 'front';
   private previousVelocityAngle = 0;
   private wobble = 0;
   private wobbleVelocity = 0;
@@ -130,41 +124,33 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.target.set(this.x, this.y);
 
     this.shadow = scene.add.ellipse(0, 72, 122, 10, 0x000000, 0.5);
+    const initialTexture = AssetRegistry.key('noxcat.front-left');
     this.bodyGlowLayers = [
-      { scale: 1.14, alpha: 0.055, additive: true },
-      { scale: 1.075, alpha: 0.15, additive: true },
-      { scale: 1.03, alpha: 0.82, additive: false },
+      { scale: 1.1, alpha: 0.045, additive: true },
+      { scale: 1.045, alpha: 0.1, additive: true },
     ].map(({ scale, alpha, additive }) => {
-      const layer = scene.add.image(0, 0, AssetRegistry.key('noxcat.body'))
+      const layer = scene.add.image(0, 0, initialTexture)
         .setOrigin(0.5)
-        .setDisplaySize(BODY_DISPLAY_WIDTH * scale, BODY_DISPLAY_HEIGHT * scale)
+        .setDisplaySize(FRONT_DISPLAY_WIDTH * scale, FRONT_DISPLAY_HEIGHT * scale)
         .setTintFill(PALETTE.green)
         .setAlpha(alpha);
       if (additive) layer.setBlendMode(Phaser.BlendModes.ADD);
       return layer;
     });
-    this.bodyImage = scene.add.image(0, 0, AssetRegistry.key('noxcat.body'))
+    this.bodyImage = scene.add.image(0, 0, initialTexture)
       .setOrigin(0.5)
-      .setDisplaySize(BODY_DISPLAY_WIDTH, BODY_DISPLAY_HEIGHT);
-    this.eyes = scene.add.image(-EYE_BASE_X, FACE_BASE_Y, AssetRegistry.key('noxcat.eyes'))
-      .setOrigin(0.5)
-      .setDisplaySize(EYE_DISPLAY_WIDTH, EYE_DISPLAY_HEIGHT);
-    this.goggles = scene.add.image(-EYE_BASE_X, FACE_BASE_Y, AssetRegistry.key('noxcat.goggles'))
-      .setOrigin(0.5)
-      .setDisplaySize(EYE_DISPLAY_WIDTH, EYE_DISPLAY_HEIGHT);
+      .setDisplaySize(FRONT_DISPLAY_WIDTH, FRONT_DISPLAY_HEIGHT);
     this.visual = scene.add.container(0, 0, [
       ...this.bodyGlowLayers,
       this.bodyImage,
-      this.eyes,
-      this.goggles,
     ]);
     this.add([this.shadow, this.visual]);
     this.setDepth(30);
 
     this.ghosts = Array.from({ length: GHOST_COUNT }, () => scene.add
-      .image(x, y, AssetRegistry.key('noxcat.body'))
+      .image(x, y, initialTexture)
       .setOrigin(0.5)
-      .setDisplaySize(BODY_DISPLAY_WIDTH, BODY_DISPLAY_HEIGHT)
+      .setDisplaySize(FRONT_DISPLAY_WIDTH, FRONT_DISPLAY_HEIGHT)
       .setAlpha(0)
       .setTintFill(PALETTE.green)
       .setDepth(21));
@@ -200,7 +186,8 @@ export class Noxcat extends Phaser.GameObjects.Container {
       scaleX: this.visual.scaleX,
       scaleY: this.visual.scaleY,
       depthScale: this.scaleX,
-      eyeX: this.eyes.x,
+      bodyTexture: this.bodyImage.texture.key,
+      bodyPose: this.bodyPose,
       activeGhosts: this.ghosts.filter((ghost) => ghost.visible && ghost.alpha > 0.008).length,
       activeDroplets: this.droplets.filter((droplet) => droplet.display.visible).length,
       ghostLimit: this.ghostLimit,
@@ -209,30 +196,20 @@ export class Noxcat extends Phaser.GameObjects.Container {
       glowOuterAlpha: this.bodyGlowLayers[0]?.alpha ?? 0,
       bodyDisplayWidth: this.bodyImage.displayWidth,
       bodyDisplayHeight: this.bodyImage.displayHeight,
-      eyeDisplayWidth: this.eyes.displayWidth * Math.abs(this.visual.scaleX),
-      eyeDisplayHeight: this.eyes.displayHeight * Math.abs(this.visual.scaleY),
-      goggleDisplayWidth: this.goggles.displayWidth * Math.abs(this.visual.scaleX),
-      goggleDisplayHeight: this.goggles.displayHeight * Math.abs(this.visual.scaleY),
-      goggleVisible: this.goggles.visible,
       hitRadius: this.hitRadius,
     };
   }
 
-  setGogglesVisible(visible: boolean): void {
-    this.goggles.setVisible(visible);
-  }
-
-  /** Actual transformed SVG body outline used for document overlap checks. */
+  /** Conservative transformed body proxy used for document overlap checks. */
   collisionPolygon(): readonly CollisionPoint[] {
     const rootScale = Math.abs(this.scaleX);
     const localScaleX = this.visual.scaleX;
     const localScaleY = this.visual.scaleY;
     const cosine = Math.cos(this.visual.rotation);
     const sine = Math.sin(this.visual.rotation);
-    const flip = this.bodyImage.flipX ? -1 : 1;
     return COLLISION_OUTLINE.map((point) => {
-      const localX = (point.x - 100) * (BODY_DISPLAY_WIDTH / 200) * flip * localScaleX;
-      const localY = (point.y - 92) * (BODY_DISPLAY_HEIGHT / 184) * localScaleY;
+      const localX = (point.x - 100) * (COLLISION_DISPLAY_WIDTH / 200) * localScaleX;
+      const localY = (point.y - 92) * (COLLISION_DISPLAY_HEIGHT / 184) * localScaleY;
       const rotatedX = localX * cosine - localY * sine;
       const rotatedY = localX * sine + localY * cosine;
       return {
@@ -268,7 +245,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
   setPointerTarget(x: number, y: number): void {
     if (this.mode !== 'follow') return;
     const nextX = Phaser.Math.Clamp(x, PLAYER_MIN_X, PLAYER_MAX_X);
-    const nextY = Phaser.Math.Clamp(y - FINGER_OFFSET_Y, PLAYER_MIN_Y, PLAYER_MAX_Y);
+    const nextY = Phaser.Math.Clamp(y, PLAYER_MIN_Y, PLAYER_MAX_Y);
     const pointerDx = nextX - this.target.x;
     const pointerDy = nextY - this.target.y;
     const pointerTravel = Math.hypot(pointerDx, pointerDy);
@@ -293,6 +270,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   beginAim(): void {
     this.mode = 'aim';
+    this.updateBodyPose(0);
     this.clearLaunchEffects();
     this.dragging = false;
     this.velocity.set(0, 0);
@@ -308,26 +286,26 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.aimAngle = Math.atan2(dy, dx);
     this.x = anchorX + Math.cos(this.aimAngle) * pull;
     this.y = anchorY + Math.sin(this.aimAngle) * pull;
-    this.visual.rotation = this.aimAngle;
-    this.visual.scaleX = Phaser.Math.Linear(1, 0.72, this.aimPull01);
-    this.visual.scaleY = Phaser.Math.Linear(1, 1.24, this.aimPull01);
+    // noxcat-up points toward the launch direction. The pointer moves in the
+    // opposite direction, so rotate its vertical axis 180 degrees from pull.
+    this.visual.rotation = this.aimAngle - Math.PI / 2;
+    this.visual.scaleX = Phaser.Math.Linear(1, 1.24, this.aimPull01);
+    this.visual.scaleY = Phaser.Math.Linear(1, 0.72, this.aimPull01);
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
-    this.eyes.rotation = -this.aimAngle;
-    this.keepEyesCrisp();
     const launchDirection = Math.sign(-dx);
     if (launchDirection !== 0) this.lastDirection = launchDirection;
+    this.updateBodyPose(0);
     return pull;
   }
 
   cancelAim(anchorX: number, anchorY: number): void {
     this.mode = 'follow';
+    this.updateBodyPose(0);
     this.x = anchorX;
     this.y = anchorY;
     this.target.set(anchorX, anchorY);
     this.visual.setPosition(0, 0).setRotation(0).setScale(1);
-    this.eyes.setRotation(0).setScale(1);
-    this.keepEyesCrisp();
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
     this.clearLaunchEffects();
@@ -344,11 +322,12 @@ export class Noxcat extends Phaser.GameObjects.Container {
       stretchAmount: 0.52,
       squashAmount: 0.28,
     });
-    this.visual.setRotation(pose.leanRadians).setScale(pose.scaleX, pose.scaleY);
+    this.visual.setScale(pose.scaleX, pose.scaleY);
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
-    this.eyes.rotation = -this.visual.rotation;
-    this.keepEyesCrisp();
+    this.updateBodyPose(1);
+    const launchAngle = Math.atan2(this.launchVelocity.y, this.launchVelocity.x);
+    this.visual.setRotation(this.bodyPose === 'up' ? launchAngle + Math.PI / 2 : pose.leanRadians);
     this.emitDroplets(1, true);
   }
 
@@ -360,14 +339,14 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
     this.visual.rotation = 0;
-    this.eyes.rotation = 0;
     this.visual.scaleX = this.impactHorizontal ? 0.5 : 1.5;
     this.visual.scaleY = this.impactHorizontal ? 1.5 : 0.5;
-    this.keepEyesCrisp();
+    this.updateBodyPose(0);
   }
 
   startReturn(targetX: number, targetY: number): void {
     this.mode = 'returning';
+    this.updateBodyPose(1);
     this.clearLaunchEffects();
     this.target.set(
       Phaser.Math.Clamp(targetX, PLAYER_MIN_X, PLAYER_MAX_X),
@@ -388,14 +367,13 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   finishReturn(): void {
     this.mode = 'follow';
+    this.updateBodyPose(0);
     this.returnArc = null;
     this.returnElapsed = 0;
     this.x = this.target.x;
     this.y = this.target.y;
     this.velocity.set(0, 0);
     this.visual.setPosition(0, 0).setRotation(0).setScale(1.16, 0.82);
-    this.eyes.rotation = 0;
-    this.keepEyesCrisp();
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
     this.releaseElapsed = 0;
@@ -456,7 +434,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
       this.visual.x = Phaser.Math.Linear(this.visual.x, 0, 1 - Math.exp(-18 * dt));
       this.visual.y = Phaser.Math.Linear(this.visual.y, 0, 1 - Math.exp(-18 * dt));
       this.visual.rotation = Phaser.Math.Linear(this.visual.rotation, 0, 1 - Math.exp(-16 * dt));
-      this.updateEyes(0, dt);
+      this.updateBodyPose(0);
       return;
     }
 
@@ -464,7 +442,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
       this.updatePerspectiveScale(dt);
       this.visual.x = Phaser.Math.Linear(this.visual.x, 0, 1 - Math.exp(-18 * dt));
       this.visual.y = Phaser.Math.Linear(this.visual.y, 0, 1 - Math.exp(-18 * dt));
-      this.updateEyes(this.aimPull01, dt);
+      this.updateBodyPose(0);
       return;
     }
 
@@ -616,11 +594,14 @@ export class Noxcat extends Phaser.GameObjects.Container {
       dt,
     );
 
-    const desiredRotation = pose.leanRadians + Phaser.Math.Clamp(this.wobble, -0.2, 0.2);
+    if (Math.abs(effectVelocity.x) > 24) this.lastDirection = Math.sign(effectVelocity.x);
+    this.updateBodyPose(pose.speed01);
+    const poseRotation = this.bodyPose === 'up'
+      ? Math.atan2(effectVelocity.y, effectVelocity.x) + Math.PI / 2
+      : pose.leanRadians;
+    const desiredRotation = poseRotation + Phaser.Math.Clamp(this.wobble, -0.2, 0.2);
     this.visual.rotation += Phaser.Math.Angle.Wrap(desiredRotation - this.visual.rotation)
       * (1 - Math.exp(-14 * dt));
-    if (Math.abs(effectVelocity.x) > 24) this.lastDirection = Math.sign(effectVelocity.x);
-    this.updateEyes(pose.speed01, dt);
     this.shadow.scaleX = Phaser.Math.Linear(
       this.shadow.scaleX,
       1 + pose.speed01 * 0.14,
@@ -661,31 +642,44 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.setScale(scale);
   }
 
-  private updateEyes(speed01: number, dt: number): void {
-    const targetEyeX = this.lastDirection * (EYE_BASE_X + speed01 * 6);
-    this.eyes.x = Phaser.Math.Linear(this.eyes.x, targetEyeX, 1 - Math.exp(-13 * dt));
-    this.eyes.y = Phaser.Math.Linear(
-      this.eyes.y,
-      FACE_BASE_Y - Math.abs(this.visual.scaleY - 1) * 4,
-      1 - Math.exp(-13 * dt),
+  private updateBodyPose(speed01: number): void {
+    const forceFront = this.mode === 'impact';
+    const forceUp = this.mode === 'aim' || (
+      this.mode === 'launched'
+      && this.launchVelocity.y < -Math.abs(this.launchVelocity.x) * 0.35
     );
-    this.eyes.rotation = -this.visual.rotation;
-    this.goggles.setPosition(this.eyes.x, this.eyes.y);
-    const facesRight = this.lastDirection > 0;
-    this.bodyImage.setFlipX(facesRight);
-    this.bodyGlowLayers.forEach((layer) => layer.setFlipX(facesRight));
-    this.eyes.setFlipX(facesRight);
-    this.goggles.setFlipX(facesRight);
-    this.keepEyesCrisp();
-  }
+    const forceSide = this.mode === 'launched' || this.mode === 'returning';
+    if (forceFront) this.bodyPose = 'front';
+    else if (forceUp) this.bodyPose = 'up';
+    else if (forceSide) this.bodyPose = 'side';
+    else {
+      const useSide = this.bodyPose === 'side' ? speed01 > 0.18 : speed01 >= 0.32;
+      this.bodyPose = useSide ? 'side' : 'front';
+    }
 
-  private keepEyesCrisp(): void {
-    const scaleX = (EYE_DISPLAY_WIDTH / EYE_TEXTURE_WIDTH)
-      / Math.max(0.5, this.visual.scaleX);
-    const scaleY = (EYE_DISPLAY_HEIGHT / EYE_TEXTURE_HEIGHT)
-      / Math.max(0.5, this.visual.scaleY);
-    this.eyes.setScale(scaleX, scaleY);
-    this.goggles.setScale(scaleX, scaleY).setRotation(this.eyes.rotation);
+    const facingRight = this.lastDirection > 0;
+    const asset = this.bodyPose === 'up'
+      ? 'noxcat.up'
+      : this.bodyPose === 'side'
+        ? (facingRight ? 'noxcat.side-right' : 'noxcat.side-left')
+        : (facingRight ? 'noxcat.front-right' : 'noxcat.front-left');
+    const texture = AssetRegistry.key(asset);
+    const width = this.bodyPose === 'up'
+      ? UP_DISPLAY_WIDTH
+      : this.bodyPose === 'side' ? SIDE_DISPLAY_WIDTH : FRONT_DISPLAY_WIDTH;
+    const height = this.bodyPose === 'up'
+      ? UP_DISPLAY_HEIGHT
+      : this.bodyPose === 'side' ? SIDE_DISPLAY_HEIGHT : FRONT_DISPLAY_HEIGHT;
+    if (this.bodyImage.texture.key !== texture) {
+      this.bodyImage.setTexture(texture);
+      this.bodyGlowLayers.forEach((layer) => layer.setTexture(texture));
+    }
+    this.bodyImage.setDisplaySize(width, height);
+    const glowScales = [1.1, 1.045];
+    this.bodyGlowLayers.forEach((layer, index) => {
+      const glowScale = glowScales[index] ?? 1;
+      layer.setDisplaySize(width * glowScale, height * glowScale);
+    });
   }
 
   private updateLaunchEffects(dt: number): void {
@@ -700,12 +694,12 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.ghostClock = 0;
     const ghost = this.ghosts.reduce((best, candidate) => candidate.alpha < best.alpha ? candidate : best);
     if (!ghost.active) return;
-    ghost.setPosition(this.x + this.visual.x, this.y + this.visual.y)
+    ghost.setTexture(this.bodyImage.texture.key)
+      .setPosition(this.x + this.visual.x, this.y + this.visual.y)
       .setRotation(this.visual.rotation)
-      .setFlipX(this.bodyImage.flipX)
       .setDisplaySize(
-        BODY_DISPLAY_WIDTH * this.scaleX * Math.max(0.62, this.visual.scaleX),
-        BODY_DISPLAY_HEIGHT * this.scaleY * Math.max(0.62, this.visual.scaleY),
+        this.bodyImage.displayWidth * this.scaleX * Math.max(0.62, this.visual.scaleX),
+        this.bodyImage.displayHeight * this.scaleY * Math.max(0.62, this.visual.scaleY),
       )
       .setAlpha(0.065)
       .setVisible(true);

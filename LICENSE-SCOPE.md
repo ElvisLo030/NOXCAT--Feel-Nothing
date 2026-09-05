@@ -21,6 +21,11 @@ IP Usage Guidelines, and any required prior written consent.
 This exclusion includes:
 
 - `public/assets/ip/noxcat/noxcat-logo-official-white.png`
+- `public/assets/ip/noxcat/noxcat-L-front.png`
+- `public/assets/ip/noxcat/noxcat-R-front.png`
+- `public/assets/ip/noxcat/noxcat-L-side.png`
+- `public/assets/ip/noxcat/noxcat-R-side.png`
+- `public/assets/ip/noxcat/noxcat-up.png`
 - `public/assets/ip/noxcat/noxcat-logo-bun-v5.svg`
 - `public/favicon.svg`
 - `docs/references/noxcat-logo-official.png`

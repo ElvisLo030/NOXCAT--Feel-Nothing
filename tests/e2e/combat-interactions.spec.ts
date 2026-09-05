@@ -44,7 +44,7 @@ test('a real pointer drag into a real paper-rain card damages NOXCAT', async ({ 
     page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot()),
   ]);
   if (!box || !visual) throw new Error('Canvas or NOXCAT position unavailable');
-  const start = toScreen(box, visual.x, visual.y + 72);
+  const start = toScreen(box, visual.x, visual.y);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
 
@@ -67,7 +67,7 @@ test('a real pointer drag into a real paper-rain card damages NOXCAT', async ({ 
       const target = toScreen(
         box,
         sample.target.visibleX,
-        Math.min(956, sample.target.visibleY + 72),
+        Math.min(956, sample.target.visibleY),
       );
       await page.mouse.move(target.x, target.y);
     }
@@ -100,7 +100,7 @@ test('the full NOXCAT silhouette fits through the advertised paper safe lane', a
   if (!box || !state.cat || state.laneX == null) {
     throw new Error('Canvas, NOXCAT, or paper safe lane unavailable');
   }
-  const start = toScreen(box, state.cat.x, state.cat.y + 72);
+  const start = toScreen(box, state.cat.x, state.cat.y);
   const target = toScreen(box, state.laneX, 892);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();

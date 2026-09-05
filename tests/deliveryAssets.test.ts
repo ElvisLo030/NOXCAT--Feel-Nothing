@@ -179,7 +179,7 @@ describe('delivery assets', () => {
     expect(wordmark).not.toMatch(/\b(?:filter|opacity|transform)\s*:/);
   });
 
-  it('keeps placeholder and superseded character files out of public assets', async () => {
+  it('keeps placeholders out while retaining the legacy vector reference', async () => {
     const assetDirectory = path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat');
     const names = (await readdir(assetDirectory)).map((name) => name.toLowerCase());
 

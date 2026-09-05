@@ -22,7 +22,6 @@ export class AppController {
   private latestAnnoyance = '需求一直改';
   private wantsCamera = true;
   private soundEnabled = true;
-  private gogglesVisible = true;
   private generation = 0;
   private faceActivityDetectedCount = 0;
   private pendingBattleStatus = '';
@@ -60,7 +59,7 @@ export class AppController {
         </header>
         <div class="start-visual" aria-hidden="true">
           <img class="start-boss-ghost" src="/assets/boss/boss-office-base-v1.png" alt="" />
-          <div class="css-noxcat"><span></span><span></span><i class="css-goggles"></i></div>
+          <img class="start-noxcat" src="/assets/ip/noxcat/noxcat-L-front.png" alt="" />
         </div>
         <form class="annoyance-form" data-testid="start-form">
           <label for="annoyance">今天最想打敗的是？</label>
@@ -68,11 +67,6 @@ export class AppController {
           <span id="annoyance-help" class="sr-only">最多輸入 80 個 Unicode 字元；留白時會使用「需求一直改」。</span>
           <div class="quick-options" role="group" aria-label="快速選項"></div>
           <div class="secondary-options">
-            <label class="accessory-toggle">
-              <input id="goggles-enabled" data-testid="goggles-enabled" type="checkbox"${this.gogglesVisible ? ' checked' : ''} />
-              <span class="toggle" aria-hidden="true"></span>
-              <b>配戴額前護目鏡</b>
-            </label>
             <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 音效開啟</label>
           </div>
           <button class="primary-button" type="submit" data-testid="generate-boss">生成我的 BOSS <span>→</span></button>
@@ -83,12 +77,6 @@ export class AppController {
 
     const input = requireElement<HTMLInputElement>(this.root, '#annoyance');
     const quickOptions = requireElement<HTMLDivElement>(this.root, '.quick-options');
-    const gogglesInput = requireElement<HTMLInputElement>(this.root, '#goggles-enabled');
-    const gogglesPreview = requireElement<HTMLElement>(this.root, '.css-goggles');
-    const syncGogglesPreview = (): void => {
-      gogglesPreview.hidden = !gogglesInput.checked;
-    };
-    gogglesInput.addEventListener('change', syncGogglesPreview);
     input.addEventListener('input', () => {
       const characters = Array.from(input.value);
       if (characters.length > 80) input.value = characters.slice(0, 80).join('');
@@ -97,7 +85,6 @@ export class AppController {
         chip.setAttribute('aria-pressed', 'false');
       });
     });
-    syncGogglesPreview();
     for (const option of QUICK_ANNOYANCES) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -124,7 +111,6 @@ export class AppController {
       // only after the player reads the on-device privacy disclosure.
       this.wantsCamera = true;
       this.soundEnabled = requireElement<HTMLInputElement>(this.root, '#sound-enabled').checked;
-      this.gogglesVisible = gogglesInput.checked;
       void this.compileBoss();
     });
     if (restoreFocus) {
@@ -348,7 +334,6 @@ export class AppController {
       source: result.source,
       annoyance: this.latestAnnoyance,
       soundEnabled: this.soundEnabled,
-      gogglesVisible: this.gogglesVisible,
       faceProvider: () => this.faceScore
     });
     const pendingStatus = this.pendingBattleStatus;

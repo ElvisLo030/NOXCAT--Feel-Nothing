@@ -6,22 +6,17 @@ import { describe, expect, it } from 'vitest';
 import {
   NOXCAT_BUN_CURVES,
   NOXCAT_BUN_START,
-  NOXCAT_EYES,
-  NOXCAT_GOGGLE_LENSES,
   NOXCAT_OFFICIAL_BLACK,
-  NOXCAT_OFFICIAL_GREEN,
   sampleNoxcatBunOutline,
 } from '../src/assets/noxcatDesign';
 
 const projectRoot = process.cwd();
+const assetDirectory = path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat');
 
-describe('NOXCAT code-native asset design', () => {
-  it('keeps fallback cubic coordinates synchronized with the flat SVG body', async () => {
+describe('NOXCAT character assets', () => {
+  it('keeps the procedural load-failure fallback synchronized with the legacy flat silhouette', async () => {
     const [svg, registry] = await Promise.all([
-      readFile(
-        path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat', 'noxcat-logo-bun-v5.svg'),
-        'utf8',
-      ),
+      readFile(path.join(assetDirectory, 'noxcat-logo-bun-v5.svg'), 'utf8'),
       readFile(path.join(projectRoot, 'src', 'assets', 'AssetRegistry.ts'), 'utf8'),
     ]);
     const pathData = svg.match(/<path[\s\S]*?\bd="([^"]+)"/)?.[1];
@@ -37,17 +32,14 @@ describe('NOXCAT code-native asset design', () => {
     ];
 
     expect(svgNumbers).toEqual(fallbackNumbers);
-    expect(svg).toContain('fill="#101820"');
     expect(NOXCAT_OFFICIAL_BLACK).toBe(0x101820);
-
-    const bodyFallback = registry.match(
-      /private static makeNoxcatBody[\s\S]*?(?=\n\s*private static makeNoxcatEyes)/,
+    const fallback = registry.match(
+      /private static makeNoxcatFallbacks[\s\S]*?(?=\n\s*private static makeHitFlash)/,
     )?.[0];
-    expect(bodyFallback).toContain('fillPoints(sampleNoxcatBunOutline()');
-    expect(bodyFallback).not.toContain('fillRoundedRect');
+    expect(fallback).toContain('fillPoints(sampleNoxcatBunOutline()');
   });
 
-  it('closes the sampled silhouette with the same long horizontal bun base', () => {
+  it('closes the conservative collision silhouette with the same horizontal base', () => {
     const outline = sampleNoxcatBunOutline();
     expect(outline[0]).toEqual(NOXCAT_BUN_START);
     expect(outline.at(-2)).toEqual({ x: 160, y: 176 });
@@ -55,54 +47,31 @@ describe('NOXCAT code-native asset design', () => {
     expect(outline.at(-2)?.y).toBe(outline.at(-1)?.y);
   });
 
-  it('ships independent editable SVG eyes and forehead goggle assets', async () => {
-    expect(NOXCAT_OFFICIAL_GREEN).toBe(0x91d500);
-    expect(NOXCAT_GOGGLE_LENSES).toHaveLength(2);
-    expect(NOXCAT_EYES).toHaveLength(2);
-    expect(NOXCAT_EYES.every((eye) => eye.height >= 25)).toBe(true);
-    expect(
-      NOXCAT_EYES.every((eye) => Object.keys(eye).sort().join(',') === 'height,width,x,y'),
-    ).toBe(true);
+  it('ships all five transparent PNG poses and keeps goggles permanently baked into the character', async () => {
+    const expected = new Map<string, readonly [number, number]>([
+      ['noxcat-L-front.png', [1468, 1071]],
+      ['noxcat-R-front.png', [1468, 1071]],
+      ['noxcat-L-side.png', [1536, 1024]],
+      ['noxcat-R-side.png', [1536, 1024]],
+      ['noxcat-up.png', [1024, 1536]],
+    ]);
+    for (const [filename, [width, height]] of expected) {
+      const png = await readFile(path.join(assetDirectory, filename));
+      expect(png.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
+      expect(png.readUInt32BE(16)).toBe(width);
+      expect(png.readUInt32BE(20)).toBe(height);
+      expect(png[25]).toBe(6);
+    }
 
-    const goggleBottom = Math.max(
-      ...NOXCAT_GOGGLE_LENSES.map((lens) => lens.y + lens.height),
-    );
-    const eyeTop = Math.min(...NOXCAT_EYES.map((eye) => eye.y - eye.height / 2));
-    expect(goggleBottom).toBeLessThan(eyeTop);
-
-    const registry = await readFile(
-      path.join(projectRoot, 'src', 'assets', 'AssetRegistry.ts'),
-      'utf8',
-    );
-    const eyesSvg = await readFile(
-      path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat', 'noxcat-eyes.svg'),
-      'utf8',
-    );
-    const gogglesSvg = await readFile(
-      path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat', 'noxcat-goggles.svg'),
-      'utf8',
-    );
-    const eyesRenderer = registry.match(
-      /private static makeNoxcatEyes[\s\S]*?(?=\n\s*private static makeNoxcatGoggles)/,
-    )?.[0];
-    const gogglesRenderer = registry.match(
-      /private static makeNoxcatGoggles[\s\S]*?(?=\n\s*private static makeHitFlash)/,
-    )?.[0];
-    const executableEyesRenderer = eyesRenderer?.replace(/\/\/.*$/gm, '');
-    expect(eyesRenderer).toContain("this.key('noxcat.eyes')");
-    expect(eyesRenderer).toContain('fillStyle(NOXCAT_OFFICIAL_GREEN, 1)');
-    expect(executableEyesRenderer).not.toMatch(/pupil|highlight|fillCircle|stroke/i);
-    expect(gogglesRenderer).toContain("this.key('noxcat.goggles')");
-    expect(gogglesRenderer).toContain('NOXCAT_GOGGLE_LENSES');
-    expect(registry).toContain("scene.load.svg(eyesKey, '/assets/ip/noxcat/noxcat-eyes.svg'");
-    expect(registry).toContain("scene.load.svg(gogglesKey, '/assets/ip/noxcat/noxcat-goggles.svg'");
-    expect(eyesSvg).toContain('viewBox="0 0 52 44"');
-    expect(eyesSvg.match(/<ellipse\b/g)).toHaveLength(2);
-    expect(eyesSvg).toContain('id="left-eye"');
-    expect(eyesSvg).toContain('id="right-eye"');
-    expect(gogglesSvg).toContain('viewBox="0 0 52 44"');
-    expect(gogglesSvg.match(/<rect\b/g)).toHaveLength(2);
-    expect(gogglesSvg).toContain('id="lenses"');
-    expect(gogglesSvg).toContain('id="bridge"');
+    const [registry, app] = await Promise.all([
+      readFile(path.join(projectRoot, 'src', 'assets', 'AssetRegistry.ts'), 'utf8'),
+      readFile(path.join(projectRoot, 'src', 'app', 'AppController.ts'), 'utf8'),
+    ]);
+    for (const filename of expected.keys()) {
+      expect(registry).toContain(`/assets/ip/noxcat/${filename}`);
+    }
+    expect(registry).not.toContain("'noxcat.goggles'");
+    expect(app).not.toContain('goggles-enabled');
+    expect(app).not.toContain('gogglesVisible');
   });
 });

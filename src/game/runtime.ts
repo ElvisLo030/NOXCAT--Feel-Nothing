@@ -21,7 +21,6 @@ export interface BattleRuntimeConfig {
   source: BossSource;
   annoyance: string;
   soundEnabled: boolean;
-  gogglesVisible: boolean;
   faceProvider: () => BattleFaceSnapshot | null;
 }
 
