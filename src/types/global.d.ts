@@ -82,6 +82,7 @@ export interface NoxcatTestHook {
   pauseAttacksForVisualTest(): void;
   forceLowFpsForTest(): void;
   expireRoundForTest(): void;
+  overloadForTest(): void;
   snapshot(): GameSessionSnapshot;
   visualSnapshot(): NoxcatVisualSnapshot;
   qualitySnapshot(): NoxcatQualitySnapshot;

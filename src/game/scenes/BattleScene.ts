@@ -11,6 +11,7 @@ import {
   LAUNCH_SPEED,
   NEUTRAL_ENERGY_PER_SECOND,
   POST_HIT_RELIEF_MS,
+  PLAYER_INVULNERABLE_MS,
   PLAYER_LAUNCH_RADIUS,
   PLAYER_GRAZE_RADIUS,
   PLAYER_HIT_RADIUS,
@@ -1066,6 +1067,14 @@ export class BattleScene extends Phaser.Scene {
         // Use the same clock and transition entry as a naturally elapsed
         // round; the next scene update then runs the normal result dispatch.
         this.session.advanceTime(this.session.remainingMs);
+      },
+      overloadForTest: () => {
+        if (isTerminalBattleState(this.session.state)) return;
+        let nowMs = this.session.elapsedMs;
+        while (this.session.lives > 0 && !isTerminalBattleState(this.session.state)) {
+          nowMs += PLAYER_INVULNERABLE_MS + 1;
+          this.session.takePlayerHit(nowMs);
+        }
       },
       snapshot: () => this.session.snapshot(),
       visualSnapshot: () => this.noxcat.visualSnapshot(),
