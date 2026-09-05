@@ -10,7 +10,7 @@ import {
   type AttackPatternHandle,
 } from './types';
 
-const COMMENTS = ['這裡對齊', '字再大一點', '再改一下', 'ASAP', 'FINAL?'] as const;
+const FALLBACK_COMMENTS = ['這裡對齊', '字再大一點', '再改一下', '今天要上', '最終版呢'] as const;
 export const COMMENT_SAFE_SPOT_RADIUS = 18;
 // 以角色與文件的完整輪廓保留空間，不能只拿固定碰撞圓判斷安全。
 export const COMMENT_CLEARANCE_X = 138;
@@ -87,9 +87,11 @@ export function planCommentCrossfire(
   rng: SeededRng,
   intensity: 1 | 2 | 3,
   speedScale: number,
+  commentLines: readonly string[] = FALLBACK_COMMENTS,
   layout = commentCrossfireLayout(rng, intensity),
 ): CommentCrossfirePlan {
   const speed = (235 + intensity * 20) * speedScale;
+  const comments = commentLines.length > 0 ? commentLines : FALLBACK_COMMENTS;
   const projectiles = layout.rays.map((ray): ProjectileConfig => {
     const dx = ray.target.x - ray.origin.x;
     const dy = ray.target.y - ray.origin.y;
@@ -101,7 +103,7 @@ export function planCommentCrossfire(
       vx: dx / length * speed,
       vy: dy / length * speed,
       radius: 28,
-      text: rng.pick(COMMENTS),
+      text: rng.pick(comments),
       perspectiveOrigin: ray.origin,
       perspectiveTarget: ray.target,
       perspectiveDurationMs: 1_500,
@@ -115,8 +117,9 @@ export function spawnCommentCrossfire(
   rng: SeededRng,
   intensity: 1 | 2 | 3,
   speedScale: number,
+  commentLines?: readonly string[],
 ): void {
-  const plan = planCommentCrossfire(rng, intensity, speedScale);
+  const plan = planCommentCrossfire(rng, intensity, speedScale, commentLines);
   for (const config of plan.projectiles) projectiles.spawn(config);
 }
 
@@ -125,7 +128,11 @@ export function runCommentCrossfire(
   layout?: ReturnType<typeof commentCrossfireLayout>,
 ): AttackPatternHandle {
   const plan = planCommentCrossfire(
-    context.rng, context.intensity, context.speedScale, layout,
+    context.rng,
+    context.intensity,
+    context.speedScale,
+    context.commentLines,
+    layout,
   );
   return createPatternTimeline(
     context.durationMs,

@@ -22,6 +22,8 @@ export interface AttackPatternContext {
   readonly projectiles: ProjectileSystem;
   readonly speedScale: number;
   readonly waveIndex: number;
+  /** BossDNA 專為註解交叉火力產生的短句。 */
+  readonly commentLines?: readonly string[];
 }
 
 /** A live pattern timeline owned and advanced by AttackDirector. */
