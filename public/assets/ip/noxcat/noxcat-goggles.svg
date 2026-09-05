@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 44" role="img" aria-label="NOXCAT forehead goggles">
+  <title>NOXCAT Goggles</title>
+  <path id="strap" d="M1 8H51" fill="none" stroke="#101820" stroke-width="3" />
+  <g id="lenses" fill="#91D500" fill-opacity="0.78" stroke="#B2B2B2" stroke-width="2">
+    <rect id="left-lens" x="2" y="1" width="21" height="13" rx="2" />
+    <rect id="right-lens" x="29" y="1" width="21" height="13" rx="2" />
+  </g>
+  <path id="bridge" d="M23 7H29" fill="none" stroke="#B2B2B2" stroke-width="2" />
+</svg>

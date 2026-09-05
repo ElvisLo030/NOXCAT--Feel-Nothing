@@ -7,8 +7,13 @@ Combat loads `noxcat-logo-bun-v5.svg`, a flat game-character redraw made under t
 Asset mapping remains centralized in `src/assets/AssetRegistry.ts`:
 
 - `noxcat-logo-bun-v5.svg` -> `noxcat.body`
-- procedural flat green oval eyes -> `noxcat.eyes`
-- optional procedural forehead goggles -> `noxcat.goggles`
+- `noxcat-eyes.svg` -> `noxcat.eyes`
+- `noxcat-goggles.svg` -> `noxcat.goggles`
+
+The eyes and goggles use the same `52 × 44` view box and named groups, so they
+can be edited independently in vector software without changing their runtime
+alignment. `AssetRegistry` retains procedural equivalents only as load-failure
+fallbacks.
 - procedural impact flash -> `noxcat.hit`
 
 The organizer archive as received and `NOXCAT IP_Usage Guidelines.pdf` may be retained locally under `docs/official-assets-20260904/`. That directory is intentionally ignored by Git and is not part of the repository distribution. The runtime NOXCAT files in this directory remain outside the project's GPL grant; see `LICENSE-SCOPE.md`. Their event-only distribution and post-event publication restrictions still apply.

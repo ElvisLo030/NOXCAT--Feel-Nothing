@@ -55,7 +55,7 @@ describe('NOXCAT code-native asset design', () => {
     expect(outline.at(-2)?.y).toBe(outline.at(-1)?.y);
   });
 
-  it('defines independent pure-green eyes and forehead goggle assets', async () => {
+  it('ships independent editable SVG eyes and forehead goggle assets', async () => {
     expect(NOXCAT_OFFICIAL_GREEN).toBe(0x91d500);
     expect(NOXCAT_GOGGLE_LENSES).toHaveLength(2);
     expect(NOXCAT_EYES).toHaveLength(2);
@@ -74,6 +74,14 @@ describe('NOXCAT code-native asset design', () => {
       path.join(projectRoot, 'src', 'assets', 'AssetRegistry.ts'),
       'utf8',
     );
+    const eyesSvg = await readFile(
+      path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat', 'noxcat-eyes.svg'),
+      'utf8',
+    );
+    const gogglesSvg = await readFile(
+      path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat', 'noxcat-goggles.svg'),
+      'utf8',
+    );
     const eyesRenderer = registry.match(
       /private static makeNoxcatEyes[\s\S]*?(?=\n\s*private static makeNoxcatGoggles)/,
     )?.[0];
@@ -86,5 +94,15 @@ describe('NOXCAT code-native asset design', () => {
     expect(executableEyesRenderer).not.toMatch(/pupil|highlight|fillCircle|stroke/i);
     expect(gogglesRenderer).toContain("this.key('noxcat.goggles')");
     expect(gogglesRenderer).toContain('NOXCAT_GOGGLE_LENSES');
+    expect(registry).toContain("scene.load.svg(eyesKey, '/assets/ip/noxcat/noxcat-eyes.svg'");
+    expect(registry).toContain("scene.load.svg(gogglesKey, '/assets/ip/noxcat/noxcat-goggles.svg'");
+    expect(eyesSvg).toContain('viewBox="0 0 52 44"');
+    expect(eyesSvg.match(/<ellipse\b/g)).toHaveLength(2);
+    expect(eyesSvg).toContain('id="left-eye"');
+    expect(eyesSvg).toContain('id="right-eye"');
+    expect(gogglesSvg).toContain('viewBox="0 0 52 44"');
+    expect(gogglesSvg.match(/<rect\b/g)).toHaveLength(2);
+    expect(gogglesSvg).toContain('id="lenses"');
+    expect(gogglesSvg).toContain('id="bridge"');
   });
 });

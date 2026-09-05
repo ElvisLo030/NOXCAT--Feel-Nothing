@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 44" role="img" aria-label="NOXCAT green eyes">
+  <title>NOXCAT Eyes</title>
+  <g id="eyes" fill="#91D500">
+    <ellipse id="left-eye" cx="13" cy="29" rx="10" ry="14" />
+    <ellipse id="right-eye" cx="38" cy="29" rx="10" ry="14.5" />
+  </g>
+</svg>

@@ -44,6 +44,20 @@ export class AssetRegistry {
         height: 368,
       });
     }
+    const eyesKey = this.key('noxcat.eyes');
+    if (!scene.textures.exists(eyesKey)) {
+      scene.load.svg(eyesKey, '/assets/ip/noxcat/noxcat-eyes.svg', {
+        width: NOXCAT_FACE_TEXTURE.width,
+        height: NOXCAT_FACE_TEXTURE.height,
+      });
+    }
+    const gogglesKey = this.key('noxcat.goggles');
+    if (!scene.textures.exists(gogglesKey)) {
+      scene.load.svg(gogglesKey, '/assets/ip/noxcat/noxcat-goggles.svg', {
+        width: NOXCAT_FACE_TEXTURE.width,
+        height: NOXCAT_FACE_TEXTURE.height,
+      });
+    }
     const bossKey = this.key('boss.crt');
     if (!scene.textures.exists(bossKey)) {
       scene.load.image(bossKey, '/assets/boss/boss-office-base-v1.png');
