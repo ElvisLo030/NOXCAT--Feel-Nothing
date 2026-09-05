@@ -24,6 +24,9 @@ const LOW_NEUTRAL_THRESHOLD = 70;
 const LOW_NEUTRAL_HOLD_MS = 250;
 const ACTIVITY_SUPPRESSION_MS = 600;
 const BONUS_NEUTRAL_THRESHOLD = 88;
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_BASE_DELAY_MS = 600;
+const RECONNECT_MAX_DELAY_MS = 2500;
 
 export type FaceTrackingMode = 'worker' | 'main-thread';
 
@@ -63,9 +66,7 @@ export interface FaceStatusUpdate {
 }
 
 export interface FaceScoreUpdate {
-  /** `null` means that no face is currently visible. */
   rawNeutral: number | null;
-  /** EMA-smoothed score. `null` means that no face is currently visible. */
   neutral: number | null;
   sample: FaceActivitySample | null;
   baseline: FaceActivitySample | null;
@@ -73,9 +74,7 @@ export interface FaceScoreUpdate {
   inferenceMs: number;
   timestampMs: number;
   mode: FaceTrackingMode;
-  /** True while Neutral may grant the optional energy bonus. */
   bonusEligible: boolean;
-  /** A one-update pulse after Neutral stays below 70 for at least 250 ms. */
   activityDetected: boolean;
 }
 
@@ -102,10 +101,6 @@ export interface FaceControllerOptions {
   onStatus?: (update: FaceStatusUpdate) => void;
   onScore?: (update: FaceScoreUpdate) => void;
   onCalibrationProgress?: (progress01: number, validSamples: number) => void;
-  /**
-   * Pass a video only for an explicit debug preview. Otherwise an off-DOM,
-   * muted video is used and never shown to the player.
-   */
   videoElement?: HTMLVideoElement;
   wasmBaseUrl?: string;
   modelAssetUrl?: string;
@@ -141,7 +136,6 @@ function cameraFailureReason(error: unknown): FaceStatusReason {
   if (!(error instanceof DOMException)) {
     return 'camera-failed';
   }
-
   switch (error.name) {
     case 'NotAllowedError':
     case 'SecurityError':
@@ -170,13 +164,11 @@ function extractActivitySample(result: FaceLandmarkerResult): FaceActivitySample
   if (categories == null || categories.length === 0) {
     return null;
   }
-
   const average = (left: number, right: number): number => (left + right) / 2;
   const outerBrow = average(
     blendshapeScore(categories, 'browOuterUpLeft'),
     blendshapeScore(categories, 'browOuterUpRight'),
   );
-
   return {
     smile: average(
       blendshapeScore(categories, 'mouthSmileLeft'),
@@ -191,11 +183,18 @@ function extractActivitySample(result: FaceLandmarkerResult): FaceActivitySample
   };
 }
 
-/**
- * Owns the camera and local Face Landmarker lifecycle. Frames only travel to a
- * same-page module worker and are immediately closed after synchronous local
- * inference; no image, landmark, or bitmap is uploaded or persisted.
- */
+function getCameraConstraints(): MediaStreamConstraints {
+  return {
+    audio: false,
+    video: {
+      facingMode: 'user',
+      width: { ideal: 320 },
+      height: { ideal: 240 },
+      frameRate: { ideal: 15, max: 24 },
+    },
+  };
+}
+
 export class FaceController {
   private readonly onStatus?: FaceControllerOptions['onStatus'];
   private readonly onScore?: FaceControllerOptions['onScore'];
@@ -214,8 +213,16 @@ export class FaceController {
     track: MediaStreamTrack;
     listener: EventListener;
   }> = [];
+  private readonly trackMuteListeners: Array<{
+    track: MediaStreamTrack;
+    type: string;
+    listener: EventListener;
+  }> = [];
+  private streamInactiveListener: { target: MediaStream; listener: EventListener } | null = null;
   private video: HTMLVideoElement | null = null;
   private ownsVideo = false;
+  private hiddenVideoContainer: HTMLElement | null = null;
+  private videoPauseListener: EventListener | null = null;
   private worker: Worker | null = null;
   private workerReady = false;
   private workerFrameInFlight = false;
@@ -230,6 +237,11 @@ export class FaceController {
   private lifecycle = 0;
   private switchingFallback = false;
   private consecutiveInferenceErrors = 0;
+  private consentGranted = false;
+  private isReconnecting = false;
+  private reconnectAttempts = 0;
+  private reconnectTimeoutId: number | null = null;
+  private visibilityRegistered = false;
 
   private calibration: ActiveCalibration | null = null;
   private baseline: FaceActivitySample | null = null;
@@ -239,6 +251,16 @@ export class FaceController {
   private validScoreSamples = 0;
   private neutralTotal = 0;
   private highestNeutral: number | null = null;
+
+  private readonly handleVisibilityChangeBound = (): void => {
+    this.handleVisibilityChange();
+  };
+  private readonly handlePageHideBound = (): void => {
+    this.handlePageHide();
+  };
+  private readonly handleWindowFocusBound = (): void => {
+    this.handleVisibilityChange();
+  };
 
   public constructor(options: FaceControllerOptions = {}) {
     this.onStatus = options.onStatus;
@@ -275,7 +297,6 @@ export class FaceController {
     return this.baseline == null ? null : { ...this.baseline };
   }
 
-  /** The video stays off-DOM unless a caller explicitly displays it in debug mode. */
   public get debugVideoElement(): HTMLVideoElement | null {
     return this.video;
   }
@@ -289,13 +310,12 @@ export class FaceController {
     };
   }
 
-  /**
-   * Must be called from the consent UI. Passing false guarantees that
-   * getUserMedia is never invoked.
-   */
   public async start(consentGranted: boolean): Promise<FaceControllerStartResult> {
     await this.releaseResources();
     this.resetScores();
+    this.consentGranted = consentGranted;
+    this.reconnectAttempts = 0;
+    this.isReconnecting = false;
 
     if (!consentGranted) {
       this.emitStatus('skipped', 'consent-not-granted');
@@ -307,6 +327,7 @@ export class FaceController {
       typeof document === 'undefined' ||
       navigator.mediaDevices?.getUserMedia == null
     ) {
+      this.consentGranted = false;
       this.emitStatus('unavailable', 'unsupported');
       return { ok: false, mode: null, reason: 'unsupported' };
     }
@@ -316,22 +337,13 @@ export class FaceController {
 
     let requestedStream: MediaStream;
     try {
-      requestedStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: 'user',
-          width: { ideal: 320 },
-          height: { ideal: 240 },
-          frameRate: { ideal: 15, max: 24 },
-        },
-      });
+      requestedStream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
     } catch (error) {
-      // A previous start must never overwrite the status or release resources
-      // belonging to a newer lifecycle after its permission prompt settles.
       if (activeLifecycle !== this.lifecycle) {
         return { ok: false, mode: null, reason: 'stopped' };
       }
       const reason = cameraFailureReason(error);
+      this.consentGranted = false;
       this.emitStatus('unavailable', reason);
       return { ok: false, mode: null, reason };
     }
@@ -350,6 +362,7 @@ export class FaceController {
         return { ok: false, mode: null, reason: 'stopped' };
       }
       await this.releaseResources();
+      this.consentGranted = false;
       this.emitStatus('unavailable', 'video-failed');
       return { ok: false, mode: null, reason: 'video-failed' };
     }
@@ -374,6 +387,7 @@ export class FaceController {
           return { ok: false, mode: null, reason: 'stopped' };
         }
         await this.releaseResources();
+        this.consentGranted = false;
         this.emitStatus('unavailable', 'initialization-failed');
         return { ok: false, mode: null, reason: 'initialization-failed' };
       }
@@ -383,6 +397,7 @@ export class FaceController {
       return { ok: false, mode: null, reason: 'stopped' };
     }
 
+    this.registerVisibilityHandlers();
     this.startCaptureLoop();
     this.emitStatus('ready');
     return { ok: true, mode: this.mode };
@@ -393,6 +408,9 @@ export class FaceController {
     minimumSamples = DEFAULT_MINIMUM_CALIBRATION_SAMPLES,
   ): Promise<FaceCalibrationResult> {
     if (this.stream == null || this.mode == null || this.captureIntervalId == null) {
+      if (this.stream != null && this.mode != null && this.isStreamHealthy() === false) {
+        this.scheduleReconnect(300);
+      }
       return Promise.resolve({
         ok: false,
         baseline: null,
@@ -424,12 +442,14 @@ export class FaceController {
   }
 
   public async skip(): Promise<void> {
+    this.consentGranted = false;
     await this.releaseResources();
     this.resetScores();
     this.emitStatus('skipped', 'consent-not-granted');
   }
 
   public async stop(): Promise<void> {
+    this.consentGranted = false;
     await this.releaseResources();
     this.resetScores();
     this.emitStatus('stopped', 'stopped');
@@ -439,24 +459,327 @@ export class FaceController {
     this.status = status;
     try {
       this.onStatus?.({ status, mode: this.mode, ...(reason == null ? {} : { reason }) });
-    } catch {
-      // A UI callback must never break camera cleanup or inference.
-    }
+    } catch { void 0; }
   }
 
   private emitScore(update: FaceScoreUpdate): void {
     try {
       this.onScore?.(update);
-    } catch {
-      // A UI callback must never break camera cleanup or inference.
-    }
+    } catch { void 0; }
   }
 
   private emitCalibrationProgress(progress01: number, validSamples: number): void {
     try {
       this.onCalibrationProgress?.(clamp(progress01, 0, 1), validSamples);
+    } catch { void 0; }
+  }
+
+  private attachHiddenVideo(video: HTMLVideoElement): void {
+    if (!this.ownsVideo) return;
+    if (typeof document === 'undefined' || document.body == null) return;
+    try {
+      if (this.hiddenVideoContainer == null || !document.body.contains(this.hiddenVideoContainer)) {
+        const container = document.createElement('div');
+        container.setAttribute('aria-hidden', 'true');
+        container.dataset.testid = 'noxcat-hidden-video-container';
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+        container.style.width = '1px';
+        container.style.height = '1px';
+        container.style.overflow = 'hidden';
+        container.style.opacity = '0.01';
+        container.style.pointerEvents = 'none';
+        document.body.appendChild(container);
+        this.hiddenVideoContainer = container;
+      }
+      if (video.parentElement !== this.hiddenVideoContainer) {
+        this.hiddenVideoContainer.appendChild(video);
+      }
+      video.style.display = 'block';
+    } catch { void 0; }
+  }
+
+  private detachHiddenVideo(video: HTMLVideoElement): void {
+    try {
+      if (video.parentElement === this.hiddenVideoContainer) {
+        video.remove();
+      }
+      if (
+        this.hiddenVideoContainer != null &&
+        this.hiddenVideoContainer.childElementCount === 0
+      ) {
+        this.hiddenVideoContainer.remove();
+        this.hiddenVideoContainer = null;
+      }
+    } catch { void 0; }
+  }
+
+  private registerVisibilityHandlers(): void {
+    if (this.visibilityRegistered) return;
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    if (typeof document.addEventListener !== 'function') return;
+    try {
+      document.addEventListener('visibilitychange', this.handleVisibilityChangeBound);
+      window.addEventListener('pageshow', this.handleVisibilityChangeBound);
+      window.addEventListener('pagehide', this.handlePageHideBound);
+      window.addEventListener('focus', this.handleWindowFocusBound);
+      this.visibilityRegistered = true;
+    } catch { void 0; }
+  }
+
+  private unregisterVisibilityHandlers(): void {
+    if (!this.visibilityRegistered) return;
+    try {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChangeBound);
+      window.removeEventListener('pageshow', this.handleVisibilityChangeBound);
+      window.removeEventListener('pagehide', this.handlePageHideBound);
+      window.removeEventListener('focus', this.handleWindowFocusBound);
+    } catch { void 0; }
+    this.visibilityRegistered = false;
+  }
+
+  private handlePageHide(): void {
+    this.stopCaptureLoop();
+  }
+
+  private isStreamHealthy(): boolean {
+    const stream = this.stream;
+    if (stream == null) return false;
+    try {
+      if (!stream.active) return false;
+      const tracks = stream.getTracks();
+      if (tracks.length === 0) return false;
+      for (const track of tracks) {
+        if ((track as MediaStreamTrack).readyState === 'ended') return false;
+        const muted = (track as unknown as { muted?: boolean }).muted;
+        if (muted === true) return false;
+      }
+      if (this.video != null) {
+        if (this.video.paused && this.video.readyState >= 2) {
+          return false;
+        }
+        if (this.video.readyState < 2) {
+          return false;
+        }
+      }
     } catch {
-      // A UI callback must never break camera cleanup or inference.
+      return false;
+    }
+    return true;
+  }
+
+  private handleVisibilityChange(): void {
+    if (typeof document === 'undefined') return;
+    const hidden = (document as unknown as { visibilityState?: string }).visibilityState === 'hidden';
+    const visible = !hidden;
+    if (!visible) {
+      this.stopCaptureLoop();
+      return;
+    }
+    if (this.stream == null || this.mode == null) return;
+    if (!this.consentGranted) return;
+    if (this.status === 'stopped' || this.status === 'skipped' || this.status === 'unavailable') return;
+
+    if (!this.isStreamHealthy()) {
+      this.scheduleReconnect(320);
+      return;
+    }
+
+    if (this.captureIntervalId == null && !this.isReconnecting) {
+      if (this.video != null) {
+        try {
+          const playResult = this.video.play();
+          if (playResult != null && typeof (playResult as Promise<void>).catch === 'function') {
+            (playResult as Promise<void>).catch(() => undefined);
+          }
+        } catch { void 0; }
+      }
+      this.startCaptureLoop();
+    }
+    this.reconnectAttempts = 0;
+    this.clearReconnectTimer();
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimeoutId != null) {
+      try {
+        window.clearTimeout(this.reconnectTimeoutId);
+      } catch { void 0; }
+      this.reconnectTimeoutId = null;
+    }
+  }
+
+  private scheduleReconnect(delayMs = RECONNECT_BASE_DELAY_MS): void {
+    if (!this.consentGranted) return;
+    if (this.status === 'stopped' || this.status === 'skipped') return;
+    if (this.isReconnecting) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
+    if (this.reconnectTimeoutId != null) return;
+    if (
+      typeof document !== 'undefined' &&
+      (document as unknown as { visibilityState?: string }).visibilityState === 'hidden'
+    ) {
+      delayMs = Math.max(delayMs, 800);
+    }
+    try {
+      this.reconnectTimeoutId = window.setTimeout(() => {
+        this.reconnectTimeoutId = null;
+        void this.attemptReconnect();
+      }, Math.min(delayMs, RECONNECT_MAX_DELAY_MS));
+    } catch { void 0; }
+  }
+
+  private async attemptReconnect(): Promise<void> {
+    if (this.isReconnecting) return;
+    if (!this.consentGranted) return;
+    if (this.stream == null) return;
+    if (this.status === 'stopped' || this.status === 'skipped' || this.status === 'unavailable') return;
+    if (
+      typeof document !== 'undefined' &&
+      (document as unknown as { visibilityState?: string }).visibilityState === 'hidden'
+    ) {
+      this.scheduleReconnect(900);
+      return;
+    }
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      await this.failRuntime('camera-failed');
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts += 1;
+    const activeLifecycle = this.lifecycle;
+    const preservedBaseline = this.baseline == null ? null : { ...this.baseline };
+    const preservedMode = this.mode;
+
+    this.stopCaptureLoop();
+    this.invalidateScore(this.mode);
+
+    let newStream: MediaStream | null = null;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
+    } catch (error) {
+      this.isReconnecting = false;
+      if (activeLifecycle !== this.lifecycle) return;
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        const reason = cameraFailureReason(error);
+        if (reason === 'permission-denied' || reason === 'no-camera') {
+          this.consentGranted = false;
+        }
+        await this.failRuntime(reason === 'camera-busy' ? 'camera-failed' : reason);
+        return;
+      }
+      const backoff = Math.min(
+        RECONNECT_MAX_DELAY_MS,
+        RECONNECT_BASE_DELAY_MS * Math.pow(1.6, this.reconnectAttempts),
+      );
+      this.scheduleReconnect(backoff);
+      this.isReconnecting = false;
+      return;
+    }
+
+    if (activeLifecycle !== this.lifecycle || !this.consentGranted) {
+      newStream.getTracks().forEach((track) => track.stop());
+      this.isReconnecting = false;
+      return;
+    }
+
+    const oldStream = this.stream;
+    this.stream = newStream;
+    this.clearTrackEndListeners();
+    this.watchStreamEnd(newStream, activeLifecycle);
+    oldStream?.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch { void 0; }
+    });
+
+    const video = this.video;
+    if (video != null) {
+      video.srcObject = newStream;
+      try {
+        await video.play();
+      } catch { void 0; }
+      this.attachHiddenVideo(video);
+    } else {
+      try {
+        await this.prepareVideo(newStream, activeLifecycle);
+      } catch {
+        newStream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch { void 0; }
+        });
+        this.isReconnecting = false;
+        if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          await this.failRuntime('video-failed');
+        } else {
+          this.scheduleReconnect(700);
+        }
+        return;
+      }
+    }
+
+    if (activeLifecycle !== this.lifecycle || !this.consentGranted) {
+      this.isReconnecting = false;
+      return;
+    }
+
+    if (preservedMode === 'worker' && this.workerReady && this.worker != null) {
+      this.isReconnecting = false;
+      this.reconnectAttempts = 0;
+      this.startCaptureLoop();
+      this.emitStatus(this.baseline != null ? 'tracking' : 'ready');
+      if (preservedBaseline != null) this.baseline = preservedBaseline;
+      return;
+    }
+
+    if (preservedMode === 'main-thread' && this.mainThreadLandmarker != null) {
+      this.isReconnecting = false;
+      this.reconnectAttempts = 0;
+      this.startCaptureLoop();
+      this.emitStatus(this.baseline != null ? 'tracking' : 'ready');
+      if (preservedBaseline != null) this.baseline = preservedBaseline;
+      return;
+    }
+
+    try {
+      if (preservedMode === 'worker' || preservedMode == null) {
+        const workerReady = await this.initializeWorker();
+        if (activeLifecycle !== this.lifecycle || !this.consentGranted) {
+          this.isReconnecting = false;
+          return;
+        }
+        if (workerReady) {
+          this.mode = 'worker';
+          this.isReconnecting = false;
+          this.reconnectAttempts = 0;
+          if (preservedBaseline != null) this.baseline = preservedBaseline;
+          this.startCaptureLoop();
+          this.emitStatus(this.baseline != null ? 'tracking' : 'ready');
+          return;
+        }
+      }
+      await this.initializeMainThreadLandmarker(activeLifecycle);
+      if (activeLifecycle !== this.lifecycle || !this.consentGranted) {
+        this.isReconnecting = false;
+        return;
+      }
+      this.mode = 'main-thread';
+      this.isReconnecting = false;
+      this.reconnectAttempts = 0;
+      if (preservedBaseline != null) this.baseline = preservedBaseline;
+      this.startCaptureLoop();
+      this.emitStatus(this.baseline != null ? 'tracking' : 'ready');
+    } catch {
+      this.isReconnecting = false;
+      if (activeLifecycle !== this.lifecycle) return;
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        await this.failRuntime('initialization-failed');
+      } else {
+        this.scheduleReconnect(900);
+      }
     }
   }
 
@@ -470,8 +793,39 @@ export class FaceController {
     video.width = 320;
     video.height = 240;
     video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
     video.setAttribute('aria-hidden', 'true');
     video.srcObject = stream;
+    if (this.ownsVideo) {
+      this.attachHiddenVideo(video);
+      if (this.videoPauseListener == null) {
+        const onPause = (): void => {
+          if (this.stream == null || this.mode == null) return;
+          if (
+          typeof document !== 'undefined' &&
+          (document as unknown as { visibilityState?: string }).visibilityState === 'hidden'
+        )
+          return;
+          if (!this.consentGranted) return;
+          if (this.isReconnecting) return;
+          window.setTimeout(() => {
+            const isHidden =
+              typeof document !== 'undefined' &&
+              (document as unknown as { visibilityState?: string }).visibilityState === 'hidden';
+            if (this.video?.paused && !isHidden) {
+              this.video?.play().catch(() => {
+                this.scheduleReconnect(400);
+              });
+              if (this.video?.paused) this.scheduleReconnect(400);
+            }
+          }, 220);
+        };
+        this.videoPauseListener = onPause as EventListener;
+        try {
+          video.addEventListener('pause', this.videoPauseListener);
+        } catch { void 0; }
+      }
+    }
 
     if (video.readyState < 1) {
       await new Promise<void>((resolve, reject) => {
@@ -611,6 +965,7 @@ export class FaceController {
 
   private startCaptureLoop(): void {
     this.stopCaptureLoop();
+    if (this.mode == null) return;
     const hz = this.mode === 'worker' ? this.workerInferenceHz : this.mainThreadInferenceHz;
     this.captureIntervalId = window.setInterval(() => {
       void this.captureOnce();
@@ -632,6 +987,12 @@ export class FaceController {
       video.readyState < 2 ||
       this.captureBusy ||
       this.workerFrameInFlight
+    ) {
+      return;
+    }
+    if (
+      typeof document !== 'undefined' &&
+      (document as unknown as { visibilityState?: string }).visibilityState === 'hidden'
     ) {
       return;
     }
@@ -739,6 +1100,7 @@ export class FaceController {
         this.clearWorkerFrameTimeout();
         this.workerFrameInFlight = false;
         this.consecutiveInferenceErrors = 0;
+        this.reconnectAttempts = 0;
         this.consumeInference(response.sample, response.timestampMs, response.inferenceMs);
         break;
       case 'error':
@@ -840,6 +1202,7 @@ export class FaceController {
     this.neutralTotal += this.smoothedNeutral;
     this.highestNeutral = Math.max(this.highestNeutral ?? 0, this.smoothedNeutral);
     this.emitStatus('tracking');
+    this.reconnectAttempts = 0;
     this.emitScore({
       rawNeutral,
       neutral: this.smoothedNeutral,
@@ -940,6 +1303,10 @@ export class FaceController {
   }
 
   private async failRuntime(reason: FaceStatusReason): Promise<void> {
+    this.clearReconnectTimer();
+    this.consentGranted = false;
+    this.reconnectAttempts = 0;
+    this.isReconnecting = false;
     this.invalidateScore(this.mode);
     await this.releaseResources();
     this.emitStatus('unavailable', reason);
@@ -981,27 +1348,89 @@ export class FaceController {
   private watchStreamEnd(stream: MediaStream, activeLifecycle: number): void {
     this.clearTrackEndListeners();
     for (const track of stream.getTracks()) {
-      // MediaStreamTrack is an EventTarget in browsers. The feature check
-      // keeps synthetic/test streams and older embedded webviews harmless.
       if (typeof track.addEventListener !== 'function') continue;
-      const listener: EventListener = () => {
+      const onEnded: EventListener = () => {
         if (activeLifecycle !== this.lifecycle || this.stream !== stream) return;
-        void this.failRuntime('camera-failed');
+        if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS && this.consentGranted) {
+          this.invalidateScore(this.mode);
+          this.stopCaptureLoop();
+          this.emitStatus('face-lost', 'camera-failed');
+          this.scheduleReconnect(450);
+        } else {
+          void this.failRuntime('camera-failed');
+        }
       };
-      track.addEventListener('ended', listener, { once: true });
-      this.trackEndListeners.push({ track, listener });
+      const onMute: EventListener = () => {
+        if (activeLifecycle !== this.lifecycle || this.stream !== stream) return;
+        this.stopCaptureLoop();
+        this.invalidateScore(this.mode);
+        this.emitStatus('face-lost', 'camera-failed');
+        this.scheduleReconnect(500);
+      };
+      const onUnmute: EventListener = () => {
+        if (activeLifecycle !== this.lifecycle || this.stream !== stream) return;
+        if (
+          this.captureIntervalId == null &&
+          !this.isReconnecting &&
+          (document as unknown as { visibilityState?: string }).visibilityState !== 'hidden'
+        ) {
+          this.reconnectAttempts = 0;
+          this.startCaptureLoop();
+          this.emitStatus(this.baseline != null ? 'tracking' : 'ready');
+        }
+      };
+      track.addEventListener('ended', onEnded, { once: true });
+      this.trackEndListeners.push({ track, listener: onEnded });
+      track.addEventListener('mute', onMute);
+      this.trackMuteListeners.push({ track, type: 'mute', listener: onMute });
+      track.addEventListener('unmute', onUnmute);
+      this.trackMuteListeners.push({ track, type: 'unmute', listener: onUnmute });
+    }
+
+    if (typeof stream.addEventListener === 'function') {
+      const onInactive: EventListener = () => {
+        if (activeLifecycle !== this.lifecycle || this.stream !== stream) return;
+        if (this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS && this.consentGranted) {
+          this.stopCaptureLoop();
+          this.scheduleReconnect(450);
+        } else {
+          void this.failRuntime('camera-failed');
+        }
+      };
+      stream.addEventListener('inactive', onInactive, { once: true } as AddEventListenerOptions);
+      this.streamInactiveListener = { target: stream, listener: onInactive };
     }
   }
 
   private clearTrackEndListeners(): void {
     for (const { track, listener } of this.trackEndListeners) {
-      track.removeEventListener('ended', listener);
+      try {
+        track.removeEventListener('ended', listener);
+      } catch { void 0; }
     }
     this.trackEndListeners.length = 0;
+    for (const { track, type, listener } of this.trackMuteListeners) {
+      try {
+        track.removeEventListener(type, listener);
+      } catch { void 0; }
+    }
+    this.trackMuteListeners.length = 0;
+    if (this.streamInactiveListener != null) {
+      try {
+        this.streamInactiveListener.target.removeEventListener(
+          'inactive',
+          this.streamInactiveListener.listener,
+        );
+      } catch { void 0; }
+      this.streamInactiveListener = null;
+    }
   }
 
   private async releaseResources(): Promise<void> {
     this.lifecycle += 1;
+    this.unregisterVisibilityHandlers();
+    this.clearReconnectTimer();
+    this.isReconnecting = false;
     this.stopCaptureLoop();
     this.cancelCalibration('stopped');
     this.pendingBitmap?.close();
@@ -1013,21 +1442,43 @@ export class FaceController {
     const stream = this.stream;
     this.stream = null;
     this.clearTrackEndListeners();
-    stream?.getTracks().forEach((track) => track.stop());
+    try {
+      stream?.getTracks().forEach((track) => track.stop());
+    } catch { void 0; }
 
     const video = this.video;
     this.video = null;
     if (video != null) {
-      video.pause();
+      if (this.videoPauseListener != null) {
+        try {
+          video.removeEventListener('pause', this.videoPauseListener);
+        } catch { void 0; }
+        this.videoPauseListener = null;
+      }
+      try {
+        video.pause();
+      } catch { void 0; }
       video.srcObject = null;
       if (this.ownsVideo) {
-        video.remove();
+        this.detachHiddenVideo(video);
+      } else {
+        try {
+          video.remove();
+        } catch { void 0; }
       }
     }
     this.ownsVideo = false;
+    if (this.hiddenVideoContainer != null && this.hiddenVideoContainer.childElementCount === 0) {
+      try {
+        this.hiddenVideoContainer.remove();
+      } catch { void 0; }
+      this.hiddenVideoContainer = null;
+    }
 
     await this.shutdownWorker();
-    this.mainThreadLandmarker?.close();
+    try {
+      this.mainThreadLandmarker?.close();
+    } catch { void 0; }
     this.mainThreadLandmarker = null;
     this.mode = null;
     this.consecutiveInferenceErrors = 0;
