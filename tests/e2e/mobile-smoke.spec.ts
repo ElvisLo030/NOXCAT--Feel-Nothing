@@ -159,9 +159,13 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   expect(dragging?.activeDroplets).toBe(0);
   expect(dragging?.glowLayerCount).toBe(3);
   expect(dragging?.glowOuterAlpha).toBeGreaterThan(0.04);
-  expect(Math.abs(dragging?.eyeX ?? 0)).toBeGreaterThan(24);
+  expect(dragging.eyeX).toBeCloseTo(0, 3);
   expect(dragging?.bodyDisplayWidth).toBeCloseTo(138, 3);
-  expect(dragging?.bodyDisplayHeight).toBeCloseTo(126, 3);
+  expect(dragging.bodyDisplayHeight / dragging.bodyDisplayWidth).toBeCloseTo(182.656 / 200, 4);
+  expect(dragging.eyeDisplayWidth / dragging.bodyDisplayWidth).toBeCloseTo(Math.abs(dragging.scaleX), 3);
+  expect(dragging.eyeDisplayHeight / dragging.bodyDisplayHeight).toBeCloseTo(Math.abs(dragging.scaleY), 3);
+  expect(dragging.goggleDisplayWidth).toBeCloseTo(dragging.eyeDisplayWidth, 3);
+  expect(dragging.goggleDisplayHeight).toBeCloseTo(dragging.eyeDisplayHeight, 3);
   expect(dragging?.goggleVisible).toBe(true);
   // The logo-led bun body visibly deforms while the round head stays intact.
   expect((dragging?.scaleX ?? 0) - (dragging?.scaleY ?? 0)).toBeGreaterThan(0.08);

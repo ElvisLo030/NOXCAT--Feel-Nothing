@@ -179,11 +179,11 @@ describe('delivery assets', () => {
     expect(wordmark).not.toMatch(/\b(?:filter|opacity|transform)\s*:/);
   });
 
-  it('keeps placeholders out while retaining the legacy vector reference', async () => {
+  it('ships the official-logo trace without placeholder assets', async () => {
     const assetDirectory = path.join(projectRoot, 'public', 'assets', 'ip', 'noxcat');
     const names = (await readdir(assetDirectory)).map((name) => name.toLowerCase());
 
-    expect(names).toContain('noxcat-logo-bun-v5.svg');
+    expect(names).toContain('noxcat-logo-traced.svg');
     expect(names.some((name) => name.includes('placeholder'))).toBe(false);
     expect(names.some((name) => /(?:^|[-_])v[1-4](?:[-_.]|$)/.test(name))).toBe(false);
   });

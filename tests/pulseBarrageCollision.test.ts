@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { sampleNoxcatBunOutline } from '../src/assets/noxcatDesign';
+import {
+  NOXCAT_DISPLAY_HEIGHT,
+  NOXCAT_DISPLAY_WIDTH,
+  NOXCAT_FACE_TEXTURE,
+  sampleNoxcatBunOutline,
+} from '../src/assets/noxcatDesign';
 import { planPulseBarrage, PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH } from '../src/game/patterns/pulseBarrage';
 import { polygonSeparation } from '../src/game/systems/CollisionMath';
 import { verticalSafeWedgeBoundsAtY } from '../src/game/systems/DangerTelegraph';
@@ -21,9 +26,11 @@ describe('pulse barrage across the complete dodge arena', () => {
       center: plan.safeLaneX, halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH,
     }, playerY);
     const playerX = (lane.left + lane.right) / 2;
-    const bodies = [-1, 1].map((flip) => sampleNoxcatBunOutline(8).map((point) => ({
-      x: playerX + (point.x - 100) * (138 / 200) * flip,
-      y: playerY + (point.y - 92) * (126 / 184),
+    const bodies = [-1, 1].map((flip) => sampleNoxcatBunOutline().map((point) => ({
+      x: playerX + (point.x - NOXCAT_FACE_TEXTURE.width / 2)
+        * (NOXCAT_DISPLAY_WIDTH / NOXCAT_FACE_TEXTURE.width) * flip,
+      y: playerY + (point.y - NOXCAT_FACE_TEXTURE.height / 2)
+        * (NOXCAT_DISPLAY_HEIGHT / NOXCAT_FACE_TEXTURE.height),
     })));
     for (const config of plan.formations.flatMap((formation) => formation.projectiles)) {
       const trajectory = createTunnelTrajectory(

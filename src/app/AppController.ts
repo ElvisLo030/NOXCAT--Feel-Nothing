@@ -11,6 +11,7 @@ import type { BattleResultDetail } from '../game/scenes/BattleScene';
 import { AudioSystem } from '../game/systems/AudioSystem';
 import { formatSeconds, requireElement, setSafeText } from './dom';
 import { presentResultScreen } from './resultScreen';
+import { noxcatSvg } from '../assets/noxcatDesign';
 
 const QUICK_ANNOYANCES = ['需求一直改', '程式 Bug', '星期一', '已讀不回'] as const;
 
@@ -60,7 +61,7 @@ export class AppController {
         </header>
         <div class="start-visual" aria-hidden="true">
           <img class="start-boss-ghost" src="/assets/boss/boss-office-base-v1.png" alt="" />
-          <div class="css-noxcat"><span></span><span></span><i class="css-goggles"></i></div>
+          <div class="css-noxcat">${noxcatSvg()}</div>
         </div>
         <form class="annoyance-form" data-testid="start-form">
           <label for="annoyance">今天最想打敗的是？</label>
@@ -84,9 +85,9 @@ export class AppController {
     const input = requireElement<HTMLInputElement>(this.root, '#annoyance');
     const quickOptions = requireElement<HTMLDivElement>(this.root, '.quick-options');
     const gogglesInput = requireElement<HTMLInputElement>(this.root, '#goggles-enabled');
-    const gogglesPreview = requireElement<HTMLElement>(this.root, '.css-goggles');
+    const gogglesPreview = requireElement<SVGElement>(this.root, '.css-goggles');
     const syncGogglesPreview = (): void => {
-      gogglesPreview.hidden = !gogglesInput.checked;
+      gogglesPreview.setAttribute('visibility', gogglesInput.checked ? 'visible' : 'hidden');
     };
     gogglesInput.addEventListener('change', syncGogglesPreview);
     input.addEventListener('input', () => {

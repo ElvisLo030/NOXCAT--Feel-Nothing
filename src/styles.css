@@ -173,16 +173,10 @@ h1 span { color: var(--lime); }
   mask-image: linear-gradient(to bottom,#000 0%,#000 64%,transparent 96%);
 }
 .css-noxcat {
-  position:absolute;z-index:2;left:50%;bottom:0;width:25%;height:auto;aspect-ratio:200/184;transform:translateX(-50%);
-  background:url('/assets/ip/noxcat/noxcat-logo-bun-v5.svg') center/contain no-repeat;
+  position:absolute;z-index:2;left:50%;bottom:0;width:25%;height:auto;transform:translateX(-50%);
   filter:drop-shadow(0 0 3px rgba(215,255,50,.95)) drop-shadow(0 0 10px rgba(145,213,0,.62)) drop-shadow(0 0 22px rgba(145,213,0,.28));
 }
-.css-noxcat span { position:absolute;z-index:2;border-radius:50%;background:#91d500; }
-.css-noxcat span:first-child{left:18%;top:47%;width:9%;height:19%}
-.css-noxcat span:nth-child(2){left:37%;top:42%;width:10%;height:21%}
-.css-goggles{position:absolute;z-index:3;left:16%;top:31%;width:31%;height:2px;background:#b2b2b2;transform:rotate(-2deg)}
-.css-goggles::before,.css-goggles::after{content:"";position:absolute;top:-3px;width:39%;height:7px;border:1px solid #b2b2b2;border-radius:2px;background:rgba(145,213,0,.78)}
-.css-goggles::before{left:0}.css-goggles::after{right:0}.css-goggles[hidden]{display:none}
+.css-noxcat > svg { display:block;width:100%;height:auto; }
 
 .annoyance-form { position: relative; z-index: 3; display: grid; gap: 6px; }
 .annoyance-form > label:first-child { font-size: clamp(19px, 4.2vw, 25px); font-weight: 900; }

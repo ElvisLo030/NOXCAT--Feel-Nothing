@@ -2,10 +2,10 @@ import Phaser from 'phaser';
 import { PALETTE } from '../theme/palette';
 import {
   NOXCAT_EYES,
+  NOXCAT_EYE_COLOR,
   NOXCAT_FACE_TEXTURE,
-  NOXCAT_GOGGLE_LENSES,
   NOXCAT_OFFICIAL_BLACK,
-  NOXCAT_OFFICIAL_GREEN,
+  noxcatSvg,
   sampleNoxcatBunOutline,
 } from './noxcatDesign';
 
@@ -19,9 +19,9 @@ export type AssetKey =
   | 'projectile.returnable';
 
 const textureKeys: Record<AssetKey, string> = {
-  'noxcat.body': 'flat-noxcat-logo-bun-v5',
-  'noxcat.eyes': 'noxcat-runtime-eyes',
-  'noxcat.goggles': 'noxcat-runtime-goggles',
+  'noxcat.body': 'noxcat-logo-traced-body',
+  'noxcat.eyes': 'noxcat-logo-traced-eyes',
+  'noxcat.goggles': 'noxcat-logo-traced-goggles',
   'noxcat.hit': 'noxcat-runtime-hit',
   'boss.crt': 'boss-runtime-crt',
   'projectile.paper': 'projectile-runtime-paper',
@@ -37,11 +37,12 @@ export class AssetRegistry {
   static readonly usesOfficialNoxcat = true;
 
   static preload(scene: Phaser.Scene): void {
-    const noxcatKey = this.key('noxcat.body');
-    if (!scene.textures.exists(noxcatKey)) {
-      scene.load.svg(noxcatKey, '/assets/ip/noxcat/noxcat-logo-bun-v5.svg', {
-        width: 400,
-        height: 368,
+    for (const layer of ['body', 'eyes', 'goggles'] as const) {
+      const key = this.key(`noxcat.${layer}`);
+      if (scene.textures.exists(key)) continue;
+      scene.load.svg(key, `data:image/svg+xml;base64,${btoa(noxcatSvg(layer))}`, {
+        width: NOXCAT_FACE_TEXTURE.width * 4,
+        height: Math.round(NOXCAT_FACE_TEXTURE.height * 4),
       });
     }
     const bossKey = this.key('boss.crt');
@@ -78,7 +79,7 @@ export class AssetRegistry {
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
     graphics.fillStyle(NOXCAT_OFFICIAL_BLACK, 1);
     graphics.fillPoints(sampleNoxcatBunOutline(), true, true);
-    graphics.generateTexture(key, 200, 184);
+    graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
     graphics.destroy();
   }
 
@@ -86,9 +87,9 @@ export class AssetRegistry {
     const key = this.key('noxcat.eyes');
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 1);
+    graphics.fillStyle(NOXCAT_EYE_COLOR, 1);
     for (const eye of NOXCAT_EYES) {
-      graphics.fillEllipse(eye.x, eye.y, eye.width, eye.height);
+      graphics.fillPoints(eye, true, true);
     }
     graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
     graphics.destroy();
@@ -98,15 +99,7 @@ export class AssetRegistry {
     const key = this.key('noxcat.goggles');
     if (scene.textures.exists(key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);
-    graphics.lineStyle(3, NOXCAT_OFFICIAL_BLACK, 1);
-    graphics.lineBetween(1, 8, 51, 8);
-    graphics.fillStyle(NOXCAT_OFFICIAL_GREEN, 0.78);
-    graphics.lineStyle(2, 0xb2b2b2, 1);
-    for (const lens of NOXCAT_GOGGLE_LENSES) {
-      graphics.fillRoundedRect(lens.x, lens.y, lens.width, lens.height, lens.radius);
-      graphics.strokeRoundedRect(lens.x, lens.y, lens.width, lens.height, lens.radius);
-    }
-    graphics.lineBetween(23, 7, 29, 7);
+    // A failed SVG load omits this optional accessory, preserving the face.
     graphics.generateTexture(key, NOXCAT_FACE_TEXTURE.width, NOXCAT_FACE_TEXTURE.height);
     graphics.destroy();
   }

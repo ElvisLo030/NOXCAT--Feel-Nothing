@@ -1,3 +1,4 @@
+import logoSvg from '../../public/assets/ip/noxcat/noxcat-logo-traced.svg?raw';
 import { PALETTE } from '../theme/palette';
 
 export interface NoxcatDesignPoint {
@@ -5,84 +6,63 @@ export interface NoxcatDesignPoint {
   readonly y: number;
 }
 
-/** Official high-saturation accent specified by the supplied usage guide. */
+/** Trace the supplied logo's shape; use the requested green game eyes. */
 export const NOXCAT_OFFICIAL_GREEN = PALETTE.green;
-export const NOXCAT_OFFICIAL_BLACK = PALETTE.black;
+export const NOXCAT_OFFICIAL_BLACK = 0x2c2925;
+export const NOXCAT_EYE_COLOR = NOXCAT_OFFICIAL_GREEN;
 
-export const NOXCAT_BUN_START = { x: 32, y: 176 } as const;
+const viewBox = logoSvg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)!;
+export const NOXCAT_FACE_TEXTURE = {
+  width: Number(viewBox[1]),
+  height: Number(viewBox[2]),
+};
+export const NOXCAT_DISPLAY_WIDTH = 138;
+export const NOXCAT_DISPLAY_HEIGHT = NOXCAT_DISPLAY_WIDTH
+  * NOXCAT_FACE_TEXTURE.height / NOXCAT_FACE_TEXTURE.width;
 
-/**
- * Cubic segments in SVG order: control 1, control 2, end point.
- * These are the same coordinates used by noxcat-logo-bun-v5.svg.
- */
-export const NOXCAT_BUN_CURVES = [
-  [21, 176, 15, 172, 11, 164],
-  [6, 154, 6, 139, 7, 124],
-  [7, 108, 12, 92, 22, 76],
-  [18, 63, 14, 44, 15, 33],
-  [16, 26, 20, 24, 27, 27],
-  [38, 31, 47, 38, 55, 45],
-  [61, 49, 65, 52, 69, 53],
-  [73, 49, 76, 46, 79, 43],
-  [79, 30, 78, 14, 82, 9],
-  [85, 5, 89, 7, 95, 12],
-  [104, 21, 114, 36, 124, 51],
-  [126, 55, 128, 58, 131, 60],
-  [154, 65, 174, 78, 186, 96],
-  [194, 108, 197, 122, 196, 138],
-  [196, 154, 189, 166, 178, 172],
-  [174, 176, 168, 176, 160, 176],
-] as const;
+function pathElement(id: string): string {
+  return logoSvg.match(new RegExp(`<path id="${id}"[^>]+/>`))![0];
+}
 
-export const NOXCAT_FACE_TEXTURE = { width: 52, height: 44 } as const;
-
-export const NOXCAT_GOGGLE_LENSES = [
-  { x: 2, y: 1, width: 21, height: 13, radius: 2 },
-  { x: 29, y: 1, width: 21, height: 13, radius: 2 },
-] as const;
-
-export const NOXCAT_EYES = [
-  {
-    x: 13,
-    y: 29,
-    width: 20,
-    height: 28,
-  },
-  {
-    x: 38,
-    y: 29,
-    width: 20,
-    height: 29,
-  },
-] as const;
-
-/** Samples the SVG cubics for Phaser's fallback polygon texture. */
-export function sampleNoxcatBunOutline(samplesPerCurve = 12): NoxcatDesignPoint[] {
-  const steps = Math.max(2, Math.floor(samplesPerCurve));
-  const points: NoxcatDesignPoint[] = [{ ...NOXCAT_BUN_START }];
-  let fromX: number = NOXCAT_BUN_START.x;
-  let fromY: number = NOXCAT_BUN_START.y;
-
-  for (const [control1X, control1Y, control2X, control2Y, endX, endY] of NOXCAT_BUN_CURVES) {
-    for (let index = 1; index <= steps; index += 1) {
-      const t = index / steps;
-      const inverse = 1 - t;
+/** Sample the same fitted SVG curves for fallback rendering and collision. */
+function pathPoints(id: string): NoxcatDesignPoint[] {
+  const path = pathElement(id).match(/\bd="([^"]+)"/)![1]!;
+  const numbers = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+  let from = { x: numbers[0]!, y: numbers[1]! };
+  const points = [from];
+  for (let index = 2; index < numbers.length; index += 6) {
+    const [x1, y1, x2, y2, x3, y3] = numbers.slice(index, index + 6) as [number, number, number, number, number, number];
+    for (let step = 1; step <= 8; step += 1) {
+      const t = step / 8;
+      const q = 1 - t;
       points.push({
-        x: inverse ** 3 * fromX
-          + 3 * inverse ** 2 * t * control1X
-          + 3 * inverse * t ** 2 * control2X
-          + t ** 3 * endX,
-        y: inverse ** 3 * fromY
-          + 3 * inverse ** 2 * t * control1Y
-          + 3 * inverse * t ** 2 * control2Y
-          + t ** 3 * endY,
+        x: q ** 3 * from.x + 3 * q ** 2 * t * x1 + 3 * q * t ** 2 * x2 + t ** 3 * x3,
+        y: q ** 3 * from.y + 3 * q ** 2 * t * y1 + 3 * q * t ** 2 * y2 + t ** 3 * y3,
       });
     }
-    fromX = endX;
-    fromY = endY;
+    from = { x: x3, y: y3 };
   }
-
-  // This closing edge is the logo-led bun's intentionally long, flat base.
-  points.push({ ...NOXCAT_BUN_START });
   return points;
+}
+
+const bodyOutline = pathPoints('body');
+export const NOXCAT_EYES = [pathPoints('eye-left'), pathPoints('eye-right')];
+export const NOXCAT_BUN_START = bodyOutline[0]!;
+
+export function sampleNoxcatBunOutline(): NoxcatDesignPoint[] {
+  return [...bodyOutline, bodyOutline[0]!];
+}
+
+export type NoxcatSvgLayer = 'body' | 'eyes' | 'goggles' | 'all';
+
+/** Homepage and Phaser load layers from this one SVG, with the same viewBox. */
+export function noxcatSvg(layer: NoxcatSvgLayer = 'all'): string {
+  const eyes = logoSvg.match(/<g id="eyes"[\s\S]*?<\/g>/)![0];
+  const goggles = logoSvg.slice(logoSvg.indexOf('  <g id="goggles"'), logoSvg.lastIndexOf('</svg>'))
+    .replace('display="none"', 'display="inline"');
+  const content = layer === 'body' ? pathElement('body')
+    : layer === 'eyes' ? eyes
+    : layer === 'goggles' ? goggles
+    : `${pathElement('body')}${eyes}${goggles}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${NOXCAT_FACE_TEXTURE.width} ${NOXCAT_FACE_TEXTURE.height}" aria-hidden="true">${content}</svg>`;
 }

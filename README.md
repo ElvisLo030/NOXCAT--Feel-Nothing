@@ -21,12 +21,12 @@
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/danger-telegraph-mobile.png" alt="攻擊危險區" width="240" /> | <img src="docs/screenshots/attack-perspective-mobile.png" alt="共享消失點射入" width="240" /> | <img src="docs/screenshots/boss-collapse-mobile.png" alt="Boss 爆炸塌落" width="240" /> |
 
-視覺以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。Boss 主體改用依使用者提供概念圖生成、再抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，因此既保留概念圖質感也能反映戰鬥狀態。最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。開始頁使用未修改的官方 Logo；戰鬥角色使用依官方 Logo 比例重繪的平面 SVG。兩顆乾淨的官方主綠 `#91D500` 單色橢圓大眼、可選配額前綠鏡護目鏡、固定碰撞圓及三層貼合輪廓的萊姆綠光暈以獨立圖層即時計算；首頁角色另以對稱的三層 drop shadow 沿整個輪廓發光。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 彈簧。Boss 文件共用地板消失點；每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依垂直 lane 取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。一般文件與反彈文件分別使用生成後抽離成透明背景的 `paper-generated-v1.png` 與 `returnable-generated-v1.png`；近景基準降為 40×52 logical px，並同步縮小 Mesh 多邊形碰撞面。Boss 射出的文件會先依左右 lane 完成梯形透視校正，再於發射時以 seeded RNG 決定一個繞螢幕垂直軸的固定正／負 yaw；飛行期間不再改變朝向，碰撞四角也直接使用同一個 3D 投影面。每條射線會計算首次進入完整 NOXCAT 可動區的深度，在該點同步跨到角色前景並依當下紙張縮放啟用碰撞，因此上緣不再是永久安全帶，也不會出現遠處小紙張使用近景大判定。低 FPS 越界幀仍使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口的獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
+視覺以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。Boss 主體改用依使用者提供概念圖生成、再抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，因此既保留概念圖質感也能反映戰鬥狀態。最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。開始頁使用未修改的官方 Logo；首頁與戰鬥角色共用從官方 Logo 原圖描出的 `noxcat-logo-traced.svg`，保留原圖貓身、耳朵及兩眼的大小、高低差與傾角；眼睛依遊戲需求使用 `#91d500` 綠色。眼睛與身體共用座標和變形，另有可選配額前綠鏡護目鏡、固定碰撞圓及三層貼合輪廓的萊姆綠光暈；首頁角色另以對稱的三層 drop shadow 沿整個輪廓發光。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 彈簧。Boss 文件共用地板消失點；每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依垂直 lane 取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。一般文件與反彈文件分別使用生成後抽離成透明背景的 `paper-generated-v1.png` 與 `returnable-generated-v1.png`；近景基準降為 40×52 logical px，並同步縮小 Mesh 多邊形碰撞面。Boss 射出的文件會先依左右 lane 完成梯形透視校正，再於發射時以 seeded RNG 決定一個繞螢幕垂直軸的固定正／負 yaw；飛行期間不再改變朝向，碰撞四角也直接使用同一個 3D 投影面。每條射線會計算首次進入完整 NOXCAT 可動區的深度，在該點同步跨到角色前景並依當下紙張縮放啟用碰撞，因此上緣不再是永久安全帶，也不會出現遠處小紙張使用近景大判定。低 FPS 越界幀仍使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口的獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
 ## 視覺與渲染規格
 
 ### 角色識別與官方素材
 - **品牌識別規範**：以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠（`#91D500`）、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。
-- **角色圖層與官方 Logo**：開始頁使用未修改的官方 Logo；首頁與戰鬥角色使用平面 SVG 貓身，眼睛與護目鏡為獨立圖層，拖曳、拉弓、發射與撞擊之間連續變形。
+- **角色圖層與官方 Logo**：開始頁使用未修改的官方 Logo；首頁與戰鬥共用從官方原圖描出的 `noxcat-logo-traced.svg`；貓身與綠眼使用相同座標、等比縮放及果凍變形，保留官方原圖的耳朵比例、眼距、高低差與傾角；遊戲眼色為 `#91d500`。
 - **護目鏡與光暈**：額前綠鏡護目鏡可由開始頁開關控制；固定碰撞範圍與三層貼合輪廓的萊姆綠光暈由遊戲獨立計算。
 - **資產集中管理**：所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
 
@@ -144,13 +144,13 @@ AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥�
 
 ## 官方 NOXCAT 素材
 
-開發者本機可將主辦方提供的官方素材包與 `NOXCAT IP_Usage Guidelines.pdf` 放在 `docs/official-assets-20260904/`；該目錄已列入 `.gitignore`，不屬於此 repo 的發布內容。開始頁使用未變形、未改色且不受掃描線覆蓋的官方白色 Logo；遊戲角色使用 `noxcat-logo-bun-v5.svg` 平面貓身，並以獨立程式圖層繪製眼睛、護目鏡、光暈與果凍變形。同目錄內五張 PNG 姿勢圖只作為未載入的設計參考。
+開發者本機可將主辦方提供的官方素材包與 `NOXCAT IP_Usage Guidelines.pdf` 放在 `docs/official-assets-20260904/`；該目錄已列入 `.gitignore`，不屬於此 repo 的發布內容。開始頁使用未變形、未改色且不受掃描線覆蓋的官方白色 Logo；首頁與遊戲角色共用 `noxcat-logo-traced.svg` 的貓身和綠眼，輪廓與座標直接來自官方原圖描線；眼色依遊戲需求設為 `#91d500`，護目鏡與光暈為獨立遊戲圖層。同目錄內五張 PNG 姿勢圖只作為未載入的設計參考。
 
 收到的壓縮包沒有 Guidelines 明稱應隨附且衝突時優先適用的 `NOXCAT Asset Licence`。因此現有文件不足以證明最終提交、公開散布或活動後使用的完整權利；正式交付前必須向主辦方取得並審閱該授權文件。
 
 1. 官方 Logo 固定使用 `public/assets/ip/noxcat/noxcat-logo-official-white.png`，不旋轉、不改色、不加特效、不重新排字。
 2. SVG 貓身、眼睛、護目鏡與 hit flash 經 `src/assets/AssetRegistry.ts` 統一載入；Scene 與系統沒有散落路徑。
-3. 角色維持官方主黑貓形、尖耳、兩顆 `#91D500` 發光大眼、額前綠鏡護目鏡與綠色單一高彩度強調色。
+3. 角色維持 Logo 原圖的 `#2c2925` 貓身，兩眼輪廓依原圖保留傾角與高低差，並依遊戲需求使用 `#91d500` 綠眼；可選額前綠鏡護目鏡與外側綠色光暈是遊戲配件。
 4. 原始素材包不納入 Git；repo 內仍存在的 NOXCAT Logo、衍生角色與呈現圖不受本專案 GPL 授權。素材限本次黑客松使用；活動後若繼續公開、上架或商業化，須先取得 NOXCAT 書面同意。
 5. `public/assets/boss/boss-office-base-v1.png` 是依本專案概念圖生成的遊戲衍生美術，不是官方原始素材；其角色／品牌相關使用仍受相同的提交與公開散布權利確認限制。
 
