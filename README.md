@@ -97,6 +97,10 @@ OPENAI_TIMEOUT_MS=5500
 
 AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念。生成分成兩個連續 API 呼叫，每批 6 句；loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句，受傷、反彈、弱點開啟與主要撞擊時也會觸發。
 
+戰鬥配樂 `NULL SIGNAL` 是原創的 116 BPM 極簡電子樂，正式來源由 `src/audio/MusicRegistry.ts` 的 `battle.main` 接口映射到 `public/assets/audio/music/noxcat-battle-loop-v1.ogg`。後續可直接覆換 OGG，或只改 registry 指向新的版本檔；BattleScene 不含硬編路徑。音檔載入／解碼失敗時才使用 Web Audio 程式化 fallback，斷網仍可遊玩。頁面失焦或橫向暫停時停止播放，回到遊戲才恢復；開始頁的「配樂與音效」可一次關閉整套聲音。替換格式與音量建議記載於 `public/assets/audio/music/README.md`。
+
+首頁按鈕使用三層品牌短音；拉弓以主聲帶、泛音與音高／音量顫動模擬「喵—敖敖敖」的果凍貓叫，並依實際拉力升高，放開、取消、失焦或弱點窗口關閉時立即淡出；Boss 最後一擊則停止戰鬥循環，播放與 2.8 秒碎片崩塌同步的低頻坍縮、碎片節奏、快速大調五聲音階與明亮終止和弦。這些即時合成音效共用同一個總靜音設定，不需要額外網路請求。
+
 ## 相機與隱私
 
 面無表情模式是每次產生 Boss 後的固定流程，首頁不提供關閉選項。遊戲仍會先顯示本機處理說明，只有玩家按下「開始 2 秒校正」才請求鏡頭權限；玩家可在說明頁略過，相機遭拒或不可用時也會自動進入標準模式並完成整局。
@@ -172,7 +176,7 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 
 - [x] Gate 0：Vite／Express／Phaser 單一服務、以 540×960 為 authored world 並以等比延伸相機填滿 live viewport 的 responsive canvas、production build。
 - [x] Gate 1：fallback 垂直切片、果凍彈簧拖曳、hit／graze／energy、三擊勝利、結果頁。
-- [x] Gate 2：九種 deterministic pattern、左右超掃近端平面、Boss／側牆／正上方多入口透視射入、危險區預警／安全路徑／清場空檔、反彈文件、180 秒失敗、音效、失焦暫停、debug、mobile E2E。
+- [x] Gate 2：九種 deterministic pattern、左右超掃近端平面、Boss／側牆／正上方多入口透視射入、危險區預警／安全路徑／清場空檔、反彈文件、180 秒失敗、動態程式化配樂與音效、失焦暫停、debug、mobile E2E。
 - [x] Gate 3：BossDNA Schema、OpenAI-compatible v1 Chat Completions Structured Outputs、可設定 local LLM base URL、rate limit、4 KB body、server/client 雙層 fallback。
 - [x] Gate 4：明確同意、2 秒 median baseline、Worker 8–10 Hz、main-thread fallback、Neutral/EMA、完整清理。
 - [ ] Gate 5：官方素材／指南整合、PWA meta 與 standalone viewport fallback、首頁／戰鬥／結束頁全螢幕 resize、危險區／安全路徑、橫向暫停、維持原比例的延伸相機、低 FPS 視覺降級／批次繪製、Boss 九層爆炸塌落與 Android Chrome／iPhone WebKit profile 自動 QA 已完成；提交前仍需 Android Chrome、iPhone Safari 與實體相機人工驗收。
@@ -187,4 +191,4 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 - 自動化測試以合成、完全不開啟真實鏡頭的 frame 驗證相機成功、權限拒絕、略過、Neutral 加成／抑制、無臉與資源清理；它不等同實體相機驗收。
 - 戰鬥倒數本身是 180 秒；加上 Boss 登場與結果轉場後，未提前結束的一局 wall-clock 會略超過 3 分鐘，與早期「單局 3 分鐘內」規格存在衝突。
 - Phaser 主 bundle 約 1.37 MB（gzip 約 367 KB）；Face worker／vision bundle 已分離，只有在固定說明頁按下校正並授予相機權限後才啟動推論。
-- 沒有背景音樂；音效使用首次遊戲手勢後解鎖的 Web Audio 合成提示音。
+- 配樂音檔與合成音效皆在首次使用者手勢後解鎖 Web Audio；真機仍需人工驗證 iPhone Safari 靜音鍵／省電模式與 Android Chrome 音訊焦點行為。

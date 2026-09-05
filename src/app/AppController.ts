@@ -67,7 +67,7 @@ export class AppController {
           <span id="annoyance-help" class="sr-only">最多輸入 80 個 Unicode 字元；留白時會使用「需求一直改」。</span>
           <div class="quick-options" role="group" aria-label="快速選項"></div>
           <div class="secondary-options">
-            <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 音效開啟</label>
+            <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 配樂與音效</label>
           </div>
           <button class="primary-button" type="submit" data-testid="generate-boss">生成我的 BOSS <span>→</span></button>
         </form>
@@ -422,7 +422,8 @@ export class AppController {
     if (!(target instanceof Element) || !target.closest('button')) return;
     const checkbox = this.root.querySelector<HTMLInputElement>('#sound-enabled');
     this.uiAudio.setEnabled(checkbox?.checked ?? this.soundEnabled);
-    void this.uiAudio.unlock().then(() => this.uiAudio.play('button'));
+    const cue = target.closest('.start-screen') ? 'homeSelect' : 'button';
+    void this.uiAudio.unlock().then(() => this.uiAudio.play(cue));
   }
 
   private async stopFace(): Promise<void> {
