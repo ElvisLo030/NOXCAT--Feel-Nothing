@@ -1,3 +1,4 @@
+import type { SafeSpotHint, DangerZoneHint } from '../game/systems/DangerTelegraph';
 import type { GameSessionSnapshot } from '../state/GameSession';
 import type { NoxcatVisualSnapshot } from '../game/entities/Noxcat';
 import type { PatternId } from '../ai/bossSchema';
@@ -12,6 +13,8 @@ export interface NoxcatWaveSnapshot {
   activeProjectileCount: number;
   activeDangerous: number;
   safeLane: SafeLaneHint | null;
+  safeSpot: SafeSpotHint | null;
+  dangerZones: readonly DangerZoneHint[];
   combatTimeScale: number;
   vulnerableRemainingMs: number;
   weakPointTweenCount: number;
@@ -85,6 +88,7 @@ export interface NoxcatTestHook {
   advanceAttackForTest(): void;
   forceLowFpsForTest(): void;
   expireRoundForTest(): void;
+  overloadForTest(): void;
   snapshot(): GameSessionSnapshot;
   visualSnapshot(): NoxcatVisualSnapshot;
   qualitySnapshot(): NoxcatQualitySnapshot;

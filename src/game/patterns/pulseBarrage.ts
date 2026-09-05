@@ -19,6 +19,8 @@ export const PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH = 76;
 export const PULSE_BARRAGE_GAP_MS = 760;
 
 const PROJECTILE_RADIUS = 18;
+// 旋轉文件與完整貓輪廓比固定碰撞圓寬，近景通道必須預留額外間距。
+const SILHOUETTE_CLEARANCE = PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 32;
 
 export interface PulseBarrageFormation {
   readonly atMs: number;
@@ -55,7 +57,7 @@ export function planPulseBarrage(
         { x: targetX, y: 835 },
         { center: safeLaneX, halfWidth: PULSE_BARRAGE_SAFE_LANE_HALF_WIDTH },
         side,
-        PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
+        SILHOUETTE_CLEARANCE,
       );
       return {
         kind: 'paper',

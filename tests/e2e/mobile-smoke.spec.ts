@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { PLAYER_MIN_Y } from '../../src/game/constants';
 
 test('an API failure falls back locally and three real pull-release launches win', async ({ page, browserName }) => {
   await page.route('**/api/boss', (route) => route.abort('failed'));
@@ -101,6 +102,7 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
   await expect(canvas).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
 
+  await page.evaluate(() => window.__NOXCAT_TEST__?.pauseAttacksForVisualTest());
   const before = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   await page.keyboard.down('ArrowLeft');
   await page.waitForTimeout(360);
@@ -109,6 +111,18 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
   const after = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
 
   expect((after?.x ?? 0)).toBeLessThan((before?.x ?? 0) - 8);
+  await page.keyboard.down('ArrowUp');
+  await page.waitForTimeout(1_000);
+  await page.keyboard.up('ArrowUp');
+  await page.waitForTimeout(150);
+  const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  expect(upper?.y).toBeCloseTo(PLAYER_MIN_Y, 0);
+  await page.keyboard.down('s');
+  await page.waitForTimeout(1_000);
+  await page.keyboard.up('s');
+  await page.waitForTimeout(150);
+  const lower = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  expect(lower?.y).toBeCloseTo(884, 0);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
   const box = await canvas.boundingBox();
@@ -188,8 +202,8 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   await page.waitForTimeout(320);
   const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   await page.mouse.up();
-  expect(upper?.y ?? 900).toBeLessThan(500);
-  expect(upper?.depthScale ?? 1).toBeLessThan(0.52);
+  expect(upper?.y).toBeCloseTo(PLAYER_MIN_Y, 0);
+  expect(upper?.depthScale ?? 0).toBeGreaterThan(0.98);
   // Perspective changes only the image; the logical gameplay body stays fixed.
   expect(upper?.hitRadius).toBe(18);
 });

@@ -1,19 +1,8 @@
 import type { SeededRng } from '../../utils/rng';
-import { PLAYER_HIT_RADIUS } from '../constants';
+import { GAME_WIDTH, GAME_HEIGHT, DODGE_AREA_TOP, PLAYER_MIN_X, PLAYER_MAX_X, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import type { ProjectileConfig } from '../entities/Projectile';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
-import {
-  clamp,
-  clampPlayerPosition,
-  ATTACK_NEAR_MAX_X,
-  ATTACK_NEAR_MIN_X,
-  LEFT_WARNING_X,
-  RIGHT_WARNING_X,
-  SIDE_ATTACK_ORIGIN_LEFT_X,
-  SIDE_ATTACK_ORIGIN_RIGHT_X,
-  SIDE_ATTACK_ORIGIN_Y,
-  type PlayerPosition,
-} from './fairness';
+import { clipLineToBounds } from '../systems/LineGeometry';
 import {
   createPatternTimeline,
   staggeredSpawnEvents,
@@ -22,117 +11,125 @@ import {
 } from './types';
 
 const COMMENTS = ['這裡對齊', '字再大一點', '再改一下', 'ASAP', 'FINAL?'] as const;
+export const COMMENT_SAFE_SPOT_RADIUS = 18;
+// 以角色與文件的完整輪廓保留空間，不能只拿固定碰撞圓判斷安全。
+export const COMMENT_CLEARANCE_X = 138;
+export const COMMENT_CLEARANCE_Y = 96;
+const PLAY_BOUNDS = { left: PLAYER_MIN_X, right: PLAYER_MAX_X, top: PLAYER_MIN_Y, bottom: PLAYER_MAX_Y };
+const SOURCE_BOUNDS = { left: -60, right: GAME_WIDTH + 60, top: DODGE_AREA_TOP - 120, bottom: GAME_HEIGHT + 80 };
 
-export const COMMENT_SAFE_LANE_HALF_HEIGHT = 74;
-const COMMENT_LANE_OFFSET = 142;
-const COMMENT_DIAGONAL_SLOPE = 0.24;
-const COMMENT_REQUIRED_CLEARANCE = COMMENT_SAFE_LANE_HALF_HEIGHT
-  + PLAYER_HIT_RADIUS
-  + 28
-  + 4;
+export function commentCrossfireLayout(rng: SeededRng, intensity: 1 | 2 | 3) {
+  const safeSpot = {
+    kind: 'safe' as const,
+    x: rng.pick([110, 270, 430]) + rng.range(-10, 10),
+    y: rng.chance(0.5) ? PLAYER_MIN_Y + COMMENT_SAFE_SPOT_RADIUS : PLAYER_MAX_Y - COMMENT_SAFE_SPOT_RADIUS,
+    radius: COMMENT_SAFE_SPOT_RADIUS,
+  };
+  const candidates = [];
+  for (let baseAngle = 0; baseAngle < 360; baseAngle += 15) {
+    const angle = baseAngle + (baseAngle % 90 === 0 ? 0 : rng.range(-4, 4));
+    const radians = angle * Math.PI / 180;
+    const unit = { x: Math.cos(radians), y: Math.sin(radians) };
+    const normal = { x: -unit.y, y: unit.x };
+    for (const x of [62, 145, 270, 395, 478]) {
+      for (const y of [PLAYER_MIN_Y + 4, (PLAYER_MIN_Y + PLAYER_MAX_Y) / 2, PLAYER_MAX_Y - 4]) {
+        const anchor = { x, y };
+        const distance = Math.abs((safeSpot.x - x) * normal.x + (safeSpot.y - y) * normal.y);
+        const clearance = Math.abs(normal.x) * COMMENT_CLEARANCE_X
+          + Math.abs(normal.y) * COMMENT_CLEARANCE_Y + safeSpot.radius + 4;
+        if (distance < clearance) continue;
+        const segment = clipLineToBounds(anchor, unit, PLAY_BOUNDS)!;
+        const length = Math.hypot(segment.exit.x - segment.entry.x, segment.exit.y - segment.entry.y);
+        if (length < 100) continue;
+        const source = clipLineToBounds(anchor, unit, SOURCE_BOUNDS)!;
+        const sourceEdge = Math.abs(source.entry.x - SOURCE_BOUNDS.left) < 1e-6 ? 'left'
+          : Math.abs(source.entry.x - SOURCE_BOUNDS.right) < 1e-6 ? 'right'
+            : Math.abs(source.entry.y - SOURCE_BOUNDS.top) < 1e-6 ? 'top' : 'bottom';
+        const target = { x: segment.entry.x + unit.x * 28, y: segment.entry.y + unit.y * 28 };
+        candidates.push({
+          direction: sourceEdge,
+          angle,
+          origin: source.entry,
+          target,
+          warning: {
+            kind: 'ray' as const,
+            from: source.entry,
+            to: source.exit,
+            halfWidth: Math.abs(normal.x) * 58 + Math.abs(normal.y) * 26 + 6,
+          },
+        });
+      }
+    }
+  }
+  // 先篩掉會封死避難點的射線，再隨機選來源和角度；同一波不依序輪流發射。
+  const pool = rng.shuffled(candidates);
+  const rays = [pool[0]!];
+  const count = intensity === 1 ? 1 : intensity === 3 && rng.chance(0.5) ? 3 : 2;
+  while (rays.length < count) {
+    const available = pool.filter((candidate) => rays.every((ray) => ray.direction !== candidate.direction));
+    const diverse = available.find((candidate) => rays.every((ray) => {
+      const difference = Math.abs(candidate.angle - ray.angle) % 180;
+      return Math.min(difference, 180 - difference) >= 20;
+    }));
+    const next = diverse ?? available[0];
+    if (!next) break;
+    rays.push(next);
+  }
+  return { rays, safeSpot };
+}
 
 export interface CommentCrossfirePlan {
-  readonly safeLaneY: number;
-  readonly fromLeft: boolean;
+  readonly layout: ReturnType<typeof commentCrossfireLayout>;
   readonly projectiles: readonly ProjectileConfig[];
 }
 
 export function planCommentCrossfire(
   rng: SeededRng,
   intensity: 1 | 2 | 3,
-  volley: number,
   speedScale: number,
-  playerPosition?: PlayerPosition,
+  layout = commentCrossfireLayout(rng, intensity),
 ): CommentCrossfirePlan {
-  const player = clampPlayerPosition(playerPosition);
-  const safeLaneY = clamp(player?.y ?? rng.range(520, 790), 500, 814);
-  const fromLeft = volley % 2 === 0;
-  // Intensity adds pressure through a second lane while speed remains low
-  // enough to preserve >550 ms warning for a player hugging either edge.
   const speed = (235 + intensity * 20) * speedScale;
-  const alternatingAbove = Math.floor(volley / 2) % 2 === 0;
-  // Keep the primary projectile inside the playable vertical span even when
-  // the player-centred safe lane sits near its top or bottom boundary.
-  const primaryAbove = safeLaneY - COMMENT_LANE_OFFSET < 430
-    ? false
-    : safeLaneY + COMMENT_LANE_OFFSET > 884
-      ? true
-      : alternatingAbove;
-  const primaryY = safeLaneY + (primaryAbove ? -COMMENT_LANE_OFFSET : COMMENT_LANE_OFFSET);
-  const oppositeY = safeLaneY - (primaryAbove ? -COMMENT_LANE_OFFSET : COMMENT_LANE_OFFSET);
-  const oppositeLaneFits = oppositeY >= 430
-    && oppositeY <= 884
-    && Math.abs(oppositeY - safeLaneY) >= COMMENT_REQUIRED_CLEARANCE;
-  const secondaryY = oppositeLaneFits
-    ? oppositeY
-    : safeLaneY + (primaryAbove ? -1 : 1) * (COMMENT_LANE_OFFSET + 72);
-  const projectile = (
-    y: number,
-    startsLeft: boolean,
-    speedMultiplier: number,
-  ): ProjectileConfig => {
-    // Every shot travels diagonally *away* from the reserved band. This makes
-    // the crossfire read as two real crossing depth rays while preventing a
-    // late vertical drift into the advertised safe height.
-    const verticalDirection = y < safeLaneY ? -1 : 1;
-    const scaledSpeed = speed * speedMultiplier;
+  const projectiles = layout.rays.map((ray): ProjectileConfig => {
+    const dx = ray.target.x - ray.origin.x;
+    const dy = ray.target.y - ray.origin.y;
+    const length = Math.hypot(dx, dy);
     return {
       kind: 'comment',
-      x: startsLeft ? LEFT_WARNING_X : RIGHT_WARNING_X,
-      y,
-      vx: (startsLeft ? 1 : -1) * scaledSpeed,
-      vy: verticalDirection * scaledSpeed * COMMENT_DIAGONAL_SLOPE,
+      x: ray.origin.x,
+      y: ray.origin.y,
+      vx: dx / length * speed,
+      vy: dy / length * speed,
       radius: 28,
       text: rng.pick(COMMENTS),
-      perspectiveOrigin: {
-        x: startsLeft ? SIDE_ATTACK_ORIGIN_LEFT_X : SIDE_ATTACK_ORIGIN_RIGHT_X,
-        y: SIDE_ATTACK_ORIGIN_Y,
-      },
-      perspectiveTarget: {
-        // Cross all the way through the opposite near edge. At contact depth
-        // this ray already occupies the boundary lane, then visibly exits
-        // past the corner instead of dying in the narrow centre corridor.
-        x: startsLeft ? ATTACK_NEAR_MAX_X : ATTACK_NEAR_MIN_X,
-        // The near-plane continuation follows the same Boss-origin ray. A
-        // generous vertical target offset keeps that complete radial segment,
-        // not only the authored collider path, outside the safe band.
-        y: clamp(safeLaneY + verticalDirection * 260, 430, 884),
-      },
+      perspectiveOrigin: ray.origin,
+      perspectiveTarget: ray.target,
       perspectiveDurationMs: 1_500,
     };
-  };
-
-  const projectiles: ProjectileConfig[] = [projectile(primaryY, fromLeft, 1)];
-  if (intensity >= 2) projectiles.push(projectile(secondaryY, !fromLeft, 0.9));
-
-  return { safeLaneY, fromLeft, projectiles };
+  });
+  return { layout, projectiles };
 }
 
 export function spawnCommentCrossfire(
   projectiles: ProjectileSystem,
   rng: SeededRng,
   intensity: 1 | 2 | 3,
-  volley: number,
   speedScale: number,
-  playerPosition?: PlayerPosition,
 ): void {
-  const plan = planCommentCrossfire(rng, intensity, volley, speedScale, playerPosition);
+  const plan = planCommentCrossfire(rng, intensity, speedScale);
   for (const config of plan.projectiles) projectiles.spawn(config);
 }
 
 export function runCommentCrossfire(
   context: AttackPatternContext,
-  safeLaneY: number,
+  layout?: ReturnType<typeof commentCrossfireLayout>,
 ): AttackPatternHandle {
   const plan = planCommentCrossfire(
-    context.rng,
-    context.intensity,
-    context.waveIndex,
-    context.speedScale,
-    { x: context.player.x, y: safeLaneY },
+    context.rng, context.intensity, context.speedScale, layout,
   );
   return createPatternTimeline(
     context.durationMs,
-    staggeredSpawnEvents(context.projectiles, plan.projectiles, 220),
+    // 所有來源共用同一個發射時間，不再依序輪流射出。
+    staggeredSpawnEvents(context.projectiles, plan.projectiles, 0),
   );
 }

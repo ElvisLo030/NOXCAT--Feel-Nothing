@@ -17,7 +17,7 @@ const EPSILON = 1e-6;
 
 /**
  * Matches the near-plane continuation to the apparent end speed of the depth
- * projection, then points it along the trajectory's own origin ray. A clamp prevents
+ * projection, then points it along the same authored ray. A clamp prevents
  * short authored perspective clocks from producing an unplayable impulse,
  * while an already faster projectile is never slowed down.
  */
@@ -26,6 +26,7 @@ export function initialProjectileExitVelocity(
   authoredVelocity: ProjectileVelocity,
 ): ProjectileVelocity {
   const authoredSpeed = Math.hypot(authoredVelocity.x, authoredVelocity.y);
+  // 側面入口必須延續自身射線，否則近景交接會突然轉向安全車道。
   const rayX = trajectory.nearPoint.x - trajectory.origin.x;
   const rayY = trajectory.nearPoint.y - trajectory.origin.y;
   const rayLength = Math.hypot(rayX, rayY);

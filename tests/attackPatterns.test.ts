@@ -3,7 +3,7 @@ import type Phaser from 'phaser';
 
 import { FALLBACK_BOSS } from '../src/ai/fallbackBoss';
 import type { BossDNA } from '../src/ai/bossSchema';
-import { PLAYER_HIT_RADIUS } from '../src/game/constants';
+import { PLAYER_HIT_RADIUS, PLAYER_MIN_Y, PLAYER_MAX_Y } from '../src/game/constants';
 import type { Noxcat } from '../src/game/entities/Noxcat';
 import type { ProjectileConfig } from '../src/game/entities/Projectile';
 import {
@@ -12,19 +12,15 @@ import {
   planClosingWalls,
 } from '../src/game/patterns/closingWalls';
 import {
-  COMMENT_SAFE_LANE_HALF_HEIGHT,
+  COMMENT_SAFE_SPOT_RADIUS,
+  COMMENT_CLEARANCE_X,
+  COMMENT_CLEARANCE_Y,
+  runCommentCrossfire,
   planCommentCrossfire,
 } from '../src/game/patterns/commentCrossfire';
 import {
   hasMinimumReactionDistance,
-  LEFT_WARNING_X,
-  ATTACK_NEAR_MAX_X,
-  ATTACK_NEAR_MIN_X,
   PROJECTILE_RECYCLE_TOP,
-  RIGHT_WARNING_X,
-  SIDE_ATTACK_ORIGIN_LEFT_X,
-  SIDE_ATTACK_ORIGIN_RIGHT_X,
-  SIDE_ATTACK_ORIGIN_Y,
 } from '../src/game/patterns/fairness';
 import {
   PAPER_SAFE_LANE_HALF_WIDTH,
@@ -57,6 +53,7 @@ import {
   sampleTunnelProjection,
 } from '../src/game/systems/ProjectileDepth';
 import { verticalSafeWedgeBoundsAtY } from '../src/game/systems/DangerTelegraph';
+import { initialProjectileExitVelocity } from '../src/game/systems/ProjectileExitMotion';
 import type { ProjectileSystem } from '../src/game/systems/ProjectileSystem';
 import { SeededRng } from '../src/utils/rng';
 
@@ -223,45 +220,97 @@ describe('attack pattern fairness geometry', () => {
     expect(projectedCentres.some((x) => Math.abs(x - 494) <= collisionReach)).toBe(true);
   });
 
-  it('alternates crossfire sides while reserving a player-centred safe lane', () => {
-    const player = { x: 46, y: 650 };
-    const even = planCommentCrossfire(new SeededRng(12), 3, 0, 1, player);
-    const odd = planCommentCrossfire(new SeededRng(12), 3, 1, 1, player);
+  it('randomizes directions, origins and angles reproducibly with distinct simultaneous sources', () => {
+    const sequence = (seed: number) => {
+      const rng = new SeededRng(seed);
+      return Array.from({ length: 24 }, () => planCommentCrossfire(rng, 3, 1));
+    };
+    const first = sequence(12);
+    expect(first).toEqual(sequence(12));
+    expect(first).not.toEqual(sequence(13));
+    const combinations = first.map((plan) => plan.layout.rays.map((ray) => ray.direction).sort().join(','));
+    expect(new Set(combinations).size).toBeGreaterThanOrEqual(6);
+    expect(new Set(first.flatMap((plan) => plan.layout.rays.map((ray) => ray.direction))).size).toBe(4);
+    expect(first.some((plan) => plan.projectiles.length === 2)).toBe(true);
+    expect(first.some((plan) => plan.projectiles.length === 3)).toBe(true);
+    const angles = first.flatMap((plan) => plan.layout.rays.map((ray) => ((ray.angle % 180) + 180) % 180));
+    expect(angles.some((angle) => angle < 10 || angle > 170)).toBe(true);
+    expect(angles.some((angle) => angle > 30 && angle < 60)).toBe(true);
+    expect(angles.some((angle) => angle > 80 && angle < 100)).toBe(true);
+    expect(new Set(angles.map((angle) => Math.round(angle / 15))).size).toBeGreaterThanOrEqual(10);
+    for (const plan of first) {
+      expect(new Set(plan.layout.rays.map((ray) => ray.direction)).size).toBeGreaterThanOrEqual(2);
+      expect(new Set(plan.layout.rays.map((ray) => ray.direction)).size).toBe(plan.projectiles.length);
+      for (const card of plan.projectiles) {
+        expect(card.perspectiveDurationMs! * PROJECTILE_CONTACT_DEPTH).toBeGreaterThanOrEqual(550);
+      }
+    }
+  });
 
-    expect(even.fromLeft).toBe(true);
-    expect(odd.fromLeft).toBe(false);
-    expect(even.projectiles[0]?.x).toBe(LEFT_WARNING_X);
-    expect(odd.projectiles[0]?.x).toBe(RIGHT_WARNING_X);
-    expect(even.projectiles[0]?.perspectiveOrigin).toEqual({
-      x: SIDE_ATTACK_ORIGIN_LEFT_X,
-      y: SIDE_ATTACK_ORIGIN_Y,
+  it('emits the whole multi-side volley at once and cancels without late emissions', () => {
+    const spawned: ProjectileConfig[] = [];
+    const runtime = createPatternRuntime();
+    const projectiles = {
+      spawn: (config: ProjectileConfig) => { spawned.push(config); return null; },
+    } as unknown as ProjectileSystem;
+    const handle = runCommentCrossfire({
+      ...runtime, projectiles, rng: new SeededRng(12), intensity: 3,
+      durationMs: 3_000, speedScale: 1, waveIndex: 0,
     });
-    expect(odd.projectiles[0]?.perspectiveOrigin).toEqual({
-      x: SIDE_ATTACK_ORIGIN_RIGHT_X,
-      y: SIDE_ATTACK_ORIGIN_Y,
-    });
-    expect(even.projectiles[0]?.perspectiveTarget?.x).toBe(ATTACK_NEAR_MAX_X);
-    expect(odd.projectiles[0]?.perspectiveTarget?.x).toBe(ATTACK_NEAR_MIN_X);
-    for (const projectile of [...even.projectiles, ...odd.projectiles]) {
-      const radius = projectile.radius ?? 28;
-      expect(Math.abs(projectile.vy)).toBeGreaterThan(0);
-      expect(Math.sign(projectile.vy)).toBe(Math.sign(projectile.y - player.y));
-      expect(Math.abs(projectile.y - player.y)).toBeGreaterThanOrEqual(
-        COMMENT_SAFE_LANE_HALF_HEIGHT + PLAYER_HIT_RADIUS + radius,
-      );
-      expect(Math.abs((projectile.perspectiveTarget?.y ?? projectile.y) - player.y))
-        .toBeGreaterThan(Math.abs(projectile.y - player.y));
-      const edgePlayer = {
-        x: projectile.vx > 0 ? 46 : 494,
-        y: projectile.y,
-      };
-      expect(hasMinimumReactionDistance(
-        { x: projectile.x, y: projectile.y },
-        edgePlayer,
-        speedOf(projectile),
-        radius,
-      )).toBe(true);
-      expectNearRayOutsideLane(projectile, player.y, COMMENT_SAFE_LANE_HALF_HEIGHT);
+    const initial = [...spawned];
+    expect(initial.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(initial.map((card) => `${card.perspectiveOrigin!.x},${card.perspectiveOrigin!.y}`)).size).toBe(initial.length);
+    handle.update(1_000);
+    handle.cancel();
+    handle.update(10_000);
+    expect(spawned).toEqual(initial);
+  });
+
+  it('keeps a reachable safe spot clear throughout every broad-angle flight', () => {
+    for (const intensity of [1, 2, 3] as const) {
+      for (const speedScale of [0.87, 1, 1.2]) {
+        for (let seed = 1; seed <= 40; seed += 1) {
+          const plan = planCommentCrossfire(new SeededRng(seed), intensity, speedScale);
+          const spot = plan.layout.safeSpot;
+          expect(spot.radius).toBe(COMMENT_SAFE_SPOT_RADIUS);
+          expect(spot.y - spot.radius).toBeGreaterThanOrEqual(PLAYER_MIN_Y);
+          expect(spot.y + spot.radius).toBeLessThanOrEqual(PLAYER_MAX_Y);
+          for (const card of plan.projectiles) {
+            const trajectory = createTunnelTrajectory(
+              { x: card.x, y: card.y }, { x: card.vx, y: card.vy }, card.radius ?? 28,
+              card.perspectiveTarget, card.perspectiveDurationMs, card.perspectiveOrigin,
+            );
+            const points = Array.from({ length: 41 }, (_, i) => {
+              const depth = PROJECTILE_CONTACT_DEPTH + (1 - PROJECTILE_CONTACT_DEPTH) * i / 40;
+              return sampleTunnelProjection(trajectory, {
+                x: trajectory.spawn.x + (trajectory.approachPoint.x - trajectory.spawn.x) * depth,
+                y: trajectory.spawn.y + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
+              }).position;
+            });
+            const velocity = initialProjectileExitVelocity(trajectory, { x: card.vx, y: card.vy });
+            for (let i = 1; i <= 240; i += 1) {
+              points.push({
+                x: trajectory.nearPoint.x + velocity.x * i / 120,
+                y: trajectory.nearPoint.y + velocity.y * i / 120,
+              });
+            }
+            const playable = points.filter((point) => point.x >= 46 && point.x <= 494
+              && point.y >= PLAYER_MIN_Y && point.y <= PLAYER_MAX_Y);
+            expect(playable.length).toBeGreaterThan(0);
+            const firstPoint = playable[0]!;
+            const lastPoint = playable.at(-1)!;
+            expect(Math.hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y)).toBeGreaterThan(70);
+            const speed = speedOf(card);
+            const nx = -card.vy / speed;
+            const ny = card.vx / speed;
+            const clearance = Math.abs(nx) * COMMENT_CLEARANCE_X + Math.abs(ny) * COMMENT_CLEARANCE_Y + spot.radius;
+            const minimumSeparation = Math.min(...points.map((point) => Math.abs(
+              (point.x - spot.x) * nx + (point.y - spot.y) * ny,
+            )));
+            expect(minimumSeparation).toBeGreaterThan(clearance);
+          }
+        }
+      }
     }
   });
 
@@ -387,6 +436,77 @@ describe('attack pattern fairness geometry', () => {
     }
   });
 
+  it('keeps every moving wall opening reachable inside the lower dodge area', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      for (const startY of [430, 650, PLAYER_MIN_Y, 810, PLAYER_MAX_Y]) {
+        const wave = planClosingWallWave(new SeededRng(seed), 3, 1, startY, 5_200);
+        for (const formation of wave.formations) {
+          expect(formation.safeGapY).toBeGreaterThanOrEqual(PLAYER_MIN_Y);
+          expect(formation.safeGapY).toBeLessThanOrEqual(PLAYER_MAX_Y);
+          for (const projectile of formation.projectiles) {
+            expectNearRayOutsideLane(projectile, formation.safeGapY, CLOSING_WALL_SAFE_GAP_HALF_HEIGHT);
+          }
+        }
+      }
+    }
+  });
+
+  it('sends both closing walls through a dangerous position in the lower dodge area', () => {
+    // Review 重現：玩家停在 y=878 的警示區，舊文件牆整波都只穿過上方。
+    const wave = planClosingWallWave(new SeededRng(12), 3, 1, 739.2, 5_200);
+    for (const side of [-1, 1]) {
+      const canHit = wave.formations.some((formation) => formation.projectiles.some((config) => {
+        if (Math.sign(config.vx) !== side) return false;
+        const trajectory = createTunnelTrajectory(
+          { x: config.x, y: config.y }, { x: config.vx, y: config.vy },
+          config.radius ?? 27, config.perspectiveTarget,
+          config.perspectiveDurationMs, config.perspectiveOrigin,
+        );
+        const velocity = initialProjectileExitVelocity(trajectory, { x: config.vx, y: config.vy });
+        const seconds = (270 - trajectory.nearPoint.x) / velocity.x;
+        const crossingY = trajectory.nearPoint.y + velocity.y * seconds;
+        return seconds >= 0 && seconds < 1
+          && Math.abs(crossingY - 878) <= PLAYER_HIT_RADIUS + (config.radius ?? 27);
+      }));
+      expect(canHit, `wall direction ${side} never threatens the lower area`).toBe(true);
+    }
+  });
+
+  it('keeps earlier wall formations clear of the moving opening from contact through exit', () => {
+    for (const seed of [1, 12, 13, 14, 144]) {
+      for (const intensity of [1, 2, 3] as const) {
+        for (const startY of [PLAYER_MIN_Y, 775, PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT]) {
+          const wave = planClosingWallWave(new SeededRng(seed), intensity, 1, startY, 5_200);
+          for (const formation of wave.formations) {
+            for (const config of formation.projectiles) {
+              const trajectory = createTunnelTrajectory(
+                { x: config.x, y: config.y }, { x: config.vx, y: config.vy },
+                config.radius ?? 27, config.perspectiveTarget,
+                config.perspectiveDurationMs, config.perspectiveOrigin,
+              );
+              for (let index = 0; index <= 10; index += 1) {
+                const depth = PROJECTILE_CONTACT_DEPTH + (1 - PROJECTILE_CONTACT_DEPTH) * index / 10;
+                const projection = sampleTunnelProjection(trajectory, {
+                  x: config.x + (trajectory.approachPoint.x - config.x) * depth,
+                  y: config.y + (trajectory.approachPoint.y - config.y) * depth,
+                });
+                if (projection.position.x < 46 || projection.position.x > 494) continue;
+                for (const opening of wave.formations) {
+                  expect(Math.abs(projection.position.y - opening.safeGapY)).toBeGreaterThan(
+                    CLOSING_WALL_SAFE_GAP_HALF_HEIGHT + PLAYER_HIT_RADIUS + (config.radius ?? 27),
+                  );
+                }
+              }
+              for (const opening of wave.formations) {
+                expectNearRayOutsideLane(config, opening.safeGapY, CLOSING_WALL_SAFE_GAP_HALF_HEIGHT);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
   it('produces identical safe geometry for identical seeds and inputs', () => {
     const first = planReturnableBurst(new SeededRng(270_027), 2, 4, 0.87, { x: 333, y: 700 });
     const second = planReturnableBurst(new SeededRng(270_027), 2, 4, 0.87, { x: 333, y: 700 });
@@ -418,16 +538,6 @@ describe('attack pattern fairness geometry', () => {
         }
 
         for (const laneY of [535, 650, 805]) {
-          const crossfire = planCommentCrossfire(
-            new SeededRng(seed),
-            intensity,
-            seed,
-            1,
-            { x: 270, y: laneY },
-          );
-          for (const projectile of crossfire.projectiles) {
-            expectNearRayOutsideLane(projectile, crossfire.safeLaneY, COMMENT_SAFE_LANE_HALF_HEIGHT);
-          }
           const walls = planClosingWalls(new SeededRng(seed), intensity, 1, laneY);
           for (const projectile of walls.projectiles) {
             expectNearRayOutsideLane(projectile, walls.safeGapY, CLOSING_WALL_SAFE_GAP_HALF_HEIGHT);
@@ -476,6 +586,52 @@ describe('attack pattern fairness geometry', () => {
 });
 
 describe('AttackDirector wave pacing', () => {
+  it('locks every randomized warning and its safe spot until simultaneous emission', () => {
+    const spawned: ProjectileConfig[] = [];
+    const projectiles = {
+      spawn: (config: ProjectileConfig) => { spawned.push(config); return null; },
+      activeProjectiles: () => [{ isDamage: true, friendly: false }],
+      activeBeams: () => [],
+      releaseDangerousForExit: () => undefined,
+    } as unknown as ProjectileSystem;
+    const dna: BossDNA = { ...FALLBACK_BOSS, attacks: [
+      { pattern: 'comment_crossfire', intensity: 3, durationMs: 4_500 },
+      { pattern: 'paper_rain', intensity: 1, durationMs: 4_500 },
+      { pattern: 'comment_crossfire', intensity: 1, durationMs: 4_500 },
+    ] };
+    const runtime = createPatternRuntime(46, PLAYER_MIN_Y);
+    const director = new AttackDirector(dna, new SeededRng(12), projectiles, runtime);
+    director.start();
+    let commentWave = 0;
+    for (let step = 0; step < 12; step += 1) {
+      const isComment = director.currentPattern === 'comment_crossfire';
+      const warnings = director.currentDangerZones.filter((zone) => zone.kind === 'ray');
+      const spot = director.currentSafeSpot;
+      const before = spawned.length;
+      // 預警後改變玩家位置不可讓彈道或安全通道跟著換邊。
+      runtime.player.x = runtime.player.x === 46 ? 494 : 46;
+      const telegraphMs = ATTACK_TELEGRAPH_MS[director.currentPattern];
+      director.update(telegraphMs, 3);
+      if (isComment) {
+        commentWave += 1;
+        expect(director.currentSafeSpot).toEqual(spot);
+        expect(director.currentDangerZones.filter((zone) => zone.kind === 'ray')).toEqual(warnings);
+        const volley = spawned.slice(before);
+        expect(volley).toHaveLength(warnings.length);
+        warnings.forEach((warning, index) => {
+          const card = volley[index]!;
+          expect(card.perspectiveOrigin).toEqual(warning.from);
+          const target = card.perspectiveTarget!;
+          const dx = warning.to.x - warning.from.x;
+          const dy = warning.to.y - warning.from.y;
+          expect((target.x - warning.from.x) * dy - (target.y - warning.from.y) * dx).toBeCloseTo(0, 7);
+        });
+      }
+      director.update(4_500 - telegraphMs, 3);
+    }
+    expect(commentWave).toBe(8);
+  });
+
   it('spawns exactly once per step, releases cards through recovery, then changes pattern', () => {
     const spawned: ProjectileConfig[] = [];
     const phases: WavePhase[] = [];

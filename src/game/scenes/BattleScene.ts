@@ -1,3 +1,4 @@
+import { clipLineToBounds } from '../systems/LineGeometry';
 import Phaser from 'phaser';
 import { PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { GameSession, type GameSessionSnapshot } from '../../state/GameSession';
@@ -6,11 +7,13 @@ import {
   AIM_MAX_PULL,
   AIM_MIN_PULL,
   BOSS_WEAK_POINT_RADIUS,
+  DODGE_AREA_TOP,
   GAME_HEIGHT,
   GAME_WIDTH,
   LAUNCH_SPEED,
   NEUTRAL_ENERGY_PER_SECOND,
   POST_HIT_RELIEF_MS,
+  PLAYER_INVULNERABLE_MS,
   PLAYER_LAUNCH_RADIUS,
   PLAYER_GRAZE_RADIUS,
   PLAYER_HIT_RADIUS,
@@ -173,9 +176,11 @@ export class BattleScene extends Phaser.Scene {
             this.showDangerZones(dangerZones ?? []);
             // This label sits over the unlit route, so describe the action rather
             // than accidentally naming the safe gap as the danger zone.
-            this.hud.setStateMessage('MOVE TO DARK');
+            const hasSafeSpot = dangerZones?.some((zone) => zone.kind === 'safe');
+            this.hud.setStateMessage(hasSafeSpot ? '移到光圈' : 'MOVE TO DARK');
             this.hud.flash(
-              volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
+              hasSafeSpot ? '避開光帶・跟著箭頭看來向'
+                : volley === 0 ? '⚠ 亮起區域將受攻擊・移到暗處' : '⚠ 危險區即將受攻擊',
               850,
             );
           } else if (phase === 'ACTIVE') {
@@ -273,8 +278,15 @@ export class BattleScene extends Phaser.Scene {
     background.lineStyle(1, 0x97ba22, 0.11);
     const floorBottom = Math.max(900, view.bottom - 60);
     const floorDivisions = 11;
-    for (let row = 1; row <= floorDivisions; row += 1) {
-      const y = floorGridY(row, floorDivisions, floorBottom);
+    const floorRows = Array.from({ length: floorDivisions }, (_, row) => (
+      floorGridY(row + 1, floorDivisions, floorBottom)
+    ));
+    const boundaryRow = floorRows.reduce((nearest, y) => (
+      Math.abs(y - DODGE_AREA_TOP) < Math.abs(nearest - DODGE_AREA_TOP) ? y : nearest
+    ));
+    // 不同螢幕比例下，最近的地板橫線都與活動邊界共用同一高度。
+    for (const rowY of floorRows) {
+      const y = rowY === boundaryRow ? DODGE_AREA_TOP : rowY;
       background.lineBetween(view.left, y, view.right, y);
     }
     // The floor frame and Boss-fired documents now share the exact same
@@ -316,6 +328,14 @@ export class BattleScene extends Phaser.Scene {
     );
     background.fillStyle(PALETTE.green, 0.035).fillEllipse(270, 450, 510, 560);
 
+    // 用淡色地板與短邊線標示一般移動區，避免玩家碰到看不見的牆。
+    background.fillStyle(PALETTE.green, 0.025)
+      .fillRect(0, DODGE_AREA_TOP, GAME_WIDTH, GAME_HEIGHT - DODGE_AREA_TOP);
+    background.lineStyle(2, PALETTE.green, 0.3)
+      .lineBetween(12, DODGE_AREA_TOP, GAME_WIDTH - 12, DODGE_AREA_TOP)
+      .lineBetween(12, DODGE_AREA_TOP, 12, DODGE_AREA_TOP + 18)
+      .lineBetween(GAME_WIDTH - 12, DODGE_AREA_TOP, GAME_WIDTH - 12, DODGE_AREA_TOP + 18);
+
     const vignette = this.vignette ?? this.add.graphics().setDepth(90).setAlpha(0.12);
     this.vignette = vignette;
     vignette.clear().lineStyle(46 / view.zoom, 0x000000, 1).strokeRect(
@@ -345,15 +365,15 @@ export class BattleScene extends Phaser.Scene {
 
     for (const zone of zones) {
       if (zone.kind === 'rect') this.drawHatchedDangerRect(zone);
+      else if (zone.kind === 'ray') this.drawDirectionalDanger(zone);
+      else if (zone.kind === 'safe') this.drawSafeSpot(zone);
       else this.drawTargetDanger(zone.x, zone.y, zone.radius);
     }
     this.tweens.add({
       targets: this.waveGuide,
-      alpha: { from: 0.58, to: 1 },
-      duration: 180,
-      yoyo: true,
-      repeat: 1,
-      ease: 'Quad.Out',
+      alpha: { from: 0.2, to: 1 },
+      duration: 380,
+      ease: 'Sine.Out',
     });
   }
 
@@ -404,6 +424,63 @@ export class BattleScene extends Phaser.Scene {
       };
       this.waveGuide.lineBetween(left.x, left.y, right.x, right.y);
     }
+  }
+
+  private drawDirectionalDanger(zone: Extract<DangerZoneHint, { kind: 'ray' }>): void {
+    const dx = zone.to.x - zone.from.x;
+    const dy = zone.to.y - zone.from.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / distance;
+    const uy = dy / distance;
+    const segment = clipLineToBounds(zone.from, { x: ux, y: uy }, {
+      left: 14, right: GAME_WIDTH - 14, top: DODGE_AREA_TOP + 8, bottom: GAME_HEIGHT - 64,
+    });
+    if (!segment) return;
+    const { entry: from, exit: to } = segment;
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    const colour = PALETTE.green;
+    const band = [
+      { x: from.x - uy * zone.halfWidth, y: from.y + ux * zone.halfWidth },
+      { x: to.x - uy * zone.halfWidth, y: to.y + ux * zone.halfWidth },
+      { x: to.x + uy * zone.halfWidth, y: to.y - ux * zone.halfWidth },
+      { x: from.x + uy * zone.halfWidth, y: from.y - ux * zone.halfWidth },
+    ];
+    // 光帶表示彈幕寬度，短虛線與實心箭頭表示來向；避開 Boss 與底部 HUD。
+    this.waveGuide.fillStyle(colour, 0.065).fillPoints(band, true, true);
+    for (const side of [-1, 1]) {
+      const ox = -uy * zone.halfWidth * side;
+      const oy = ux * zone.halfWidth * side;
+      this.waveGuide.lineStyle(1, colour, 0.2).lineBetween(from.x + ox, from.y + oy, to.x + ox, to.y + oy);
+    }
+    this.waveGuide.lineStyle(10, colour, 0.06).lineBetween(from.x, from.y, to.x, to.y);
+    for (let offset = 12; offset < length - 12; offset += 28) {
+      const end = Math.min(offset + 11, length - 12);
+      this.waveGuide.lineStyle(1.5, PALETTE.white, 0.55)
+        .lineBetween(from.x + ux * offset, from.y + uy * offset, from.x + ux * end, from.y + uy * end);
+    }
+    for (let offset = 40; offset < length - 16; offset += 100) {
+      const x = from.x + ux * offset;
+      const y = from.y + uy * offset;
+      this.waveGuide.fillStyle(colour, 0.9).fillTriangle(
+        x + ux * 10, y + uy * 10,
+        x - ux * 7 - uy * 7, y - uy * 7 + ux * 7,
+        x - ux * 7 + uy * 7, y - uy * 7 - ux * 7,
+      );
+    }
+    // 入口只用一個短刻度收尾，讓多條路徑同時出現時仍容易辨識。
+    this.waveGuide.lineStyle(3, colour, 0.8)
+      .lineBetween(from.x - uy * 10, from.y + ux * 10, from.x + uy * 10, from.y - ux * 10);
+  }
+
+  private drawSafeSpot(zone: Extract<DangerZoneHint, { kind: 'safe' }>): void {
+    this.waveGuide.fillStyle(PALETTE.black, 0.9).fillCircle(zone.x, zone.y, zone.radius + 6);
+    this.waveGuide.fillStyle(PALETTE.green, 0.12).fillCircle(zone.x, zone.y, zone.radius);
+    this.waveGuide.lineStyle(1.5, PALETTE.white, 0.75).strokeCircle(zone.x, zone.y, zone.radius);
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 2) {
+      this.waveGuide.lineStyle(2.5, PALETTE.green, 0.9).beginPath()
+        .arc(zone.x, zone.y, zone.radius + 7, angle + 0.2, angle + 0.9).strokePath();
+    }
+    this.waveGuide.fillStyle(PALETTE.white, 0.8).fillCircle(zone.x, zone.y, 2);
   }
 
   private drawTargetDanger(x: number, y: number, radius: number): void {
@@ -1099,6 +1176,14 @@ export class BattleScene extends Phaser.Scene {
         // round; the next scene update then runs the normal result dispatch.
         this.session.advanceTime(this.session.remainingMs);
       },
+      overloadForTest: () => {
+        if (isTerminalBattleState(this.session.state)) return;
+        let nowMs = this.session.elapsedMs;
+        while (this.session.lives > 0 && !isTerminalBattleState(this.session.state)) {
+          nowMs += PLAYER_INVULNERABLE_MS + 1;
+          this.session.takePlayerHit(nowMs);
+        }
+      },
       snapshot: () => this.session.snapshot(),
       visualSnapshot: () => this.noxcat.visualSnapshot(),
       qualitySnapshot: () => ({
@@ -1122,6 +1207,8 @@ export class BattleScene extends Phaser.Scene {
             projectile.isDamage && !projectile.friendly
           )).length + activeBeams.filter((beam) => beam.telegraphMs <= 0 && beam.activeMs > 0).length,
           safeLane: this.director.currentSafeLane ?? null,
+          safeSpot: this.director.currentSafeSpot ?? null,
+          dangerZones: this.director.currentDangerZones,
           combatTimeScale: this.combatTimeScale,
           vulnerableRemainingMs: this.vulnerableRemainingMs,
           weakPointTweenCount: this.boss.weakPointTweenCount,
