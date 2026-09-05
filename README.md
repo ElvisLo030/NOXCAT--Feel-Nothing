@@ -6,19 +6,47 @@
 
 ## Screenshots
 
+### 核心流程
 | 開始頁 | 戰鬥 | 結果 |
-| --- | --- | --- |
-| ![開始頁](docs/screenshots/start-mobile.png) | ![戰鬥](docs/screenshots/battle-full-viewport-mobile.png) | ![結果](docs/screenshots/result-mobile.png) |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/start-mobile.png" alt="開始頁" width="240" /> | <img src="docs/screenshots/battle-full-viewport-mobile.png" alt="戰鬥" width="240" /> | <img src="docs/screenshots/result-mobile.png" alt="結果" width="240" /> |
 
+### 果凍動態
 | 快速拖曳 | 放手回彈／液滴 | 果凍砲彈 |
-| --- | --- | --- |
-| ![快速拖曳](docs/screenshots/jelly-drag-mobile.png) | ![放手回彈](docs/screenshots/jelly-release-mobile.png) | ![果凍砲彈](docs/screenshots/jelly-launch-mobile.png) |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/jelly-drag-mobile.png" alt="快速拖曳" width="240" /> | <img src="docs/screenshots/jelly-release-mobile.png" alt="放手回彈" width="240" /> | <img src="docs/screenshots/jelly-launch-mobile.png" alt="果凍砲彈" width="240" /> |
 
+### 戰鬥與演出
 | 攻擊危險區 | 共享消失點射入 | Boss 爆炸塌落 |
-| --- | --- | --- |
-| ![攻擊危險區](docs/screenshots/danger-telegraph-mobile.png) | ![共享消失點射入](docs/screenshots/attack-perspective-mobile.png) | ![Boss 爆炸塌落](docs/screenshots/boss-collapse-mobile.png) |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/danger-telegraph-mobile.png" alt="攻擊危險區" width="240" /> | <img src="docs/screenshots/attack-perspective-mobile.png" alt="共享消失點射入" width="240" /> | <img src="docs/screenshots/boss-collapse-mobile.png" alt="Boss 爆炸塌落" width="240" /> |
 
-視覺以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。Boss 主體改用依使用者提供概念圖生成、再抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，因此既保留概念圖質感也能反映戰鬥狀態。最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。開始頁使用未修改的官方 Logo；首頁與戰鬥角色改用五張完整透明 PNG，依左右方向與移動速度切換正面／側面姿勢；按住角色向後拉時立即切換專用向上姿勢，放開朝 Boss 爆衝時繼續沿用。眼睛、四肢、尾巴與額前綠鏡護目鏡已直接包含在 PNG 中，護目鏡固定配戴；固定碰撞範圍與兩層低透明萊姆綠光暈仍由遊戲獨立計算。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 彈簧。Boss 文件共用地板消失點；每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依縱深取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。一般文件與反彈文件分別使用生成後抽離成透明背景的 `paper-generated-v1.png` 與 `returnable-generated-v1.png`；近景基準降為 40×52 logical px，並同步縮小 Mesh 多邊形碰撞面。Boss 射出的文件會先完成左右 lane 的梯形透視校正，再把整張剛性紙面依 seeded RNG 以非零角速度隨機順時針或逆時針旋轉；碰撞四角使用相同的後旋轉矩陣。遠景不參與碰撞，進入近景時可見中心與實際文件四角精確交接，低 FPS 越界幀則使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口的獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
+## 視覺與渲染規格
+
+### 角色識別與官方素材
+- **品牌識別規範**：以 `docs/mockups/` 的比例與動態方向為參考，並以主辦方官方素材包校正角色識別：charcoal 黑、螢光萊姆綠（`#91D500`）、CRT＋文件堆 Boss、低位平底紅豆麵包輪廓與極簡 HUD。
+- **姿勢切換與官方 Logo**：開始頁使用未修改的官方 Logo；首頁與戰鬥角色改用五張完整透明 PNG，依左右方向與移動速度切換正面／側面姿勢；按住角色向後拉時立即切換專用向上姿勢，放開朝 Boss 爆衝時繼續沿用。
+- **護目鏡與光暈**：眼睛、四肢、尾巴與額前綠鏡護目鏡已直接包含在 PNG 中，護目鏡固定配戴；固定碰撞範圍與兩層低透明萊姆綠光暈仍由遊戲獨立計算。
+- **資產集中管理**：所有遊戲資產映射集中於 `AssetRegistry`，並只在素材載入失敗時使用隔離的程序化 fallback。
+
+### 果凍手感與動態物理
+- **阻尼彈簧系統**：拖動、急轉、放手、發射、撞擊與落地共用 frame-rate-safe 阻尼彈簧。一般拖曳不繪製長尾線，動感來自貓本體的壓縮、過衝與放手後回彈。
+- **動態殘影與液滴**：完整品質下，主要發射最多使用 8 個短殘影與 6 顆液滴；持續低於 45 FPS 時自動降為 5 個與 3 顆。
+- **縱深縮放與碰撞**：NOXCAT 往 Boss 方向移動時最低縮至 42%，精確輪廓碰撞同步採用該即時縮放。
+
+### Boss 美術與塌落演出
+- **Boss 即時疊加**：Boss 主體改用依概念圖生成並抽離為真透明背景的 `public/assets/boss/boss-office-base-v1.png`；CRT 表情、裂痕、弱點標籤、發光與命中回饋仍由遊戲即時疊加，既保留概念圖質感也能反映戰鬥狀態。
+- **九層結構解體塌落**：最後一擊會先觸發全畫面爆光與震波，再把 Boss 拆成九層由底部開始失去支撐、依序下墜壓縮，搭配碎片與煙塵，完成後才進入結算。
+- **首頁背景重用**：首頁亦重用同一張 Boss 圖作低透明灰階背景並向下淡出，不再放置舊 CSS 小螢幕或倒 V 光線。
+
+### 3D 透視投影與彈幕渲染
+- **消失點與多入口透視**：攻擊預警、地板框線與 Boss 文件共用同一消失點及超出畫面左右的近端邊界；`comment_crossfire` 與 `closing_walls` 另從左右牆口獨立消失點射入，`top_downpour` 則使用正上方的垂直入口。
+- **4×6 細分 WebGL Mesh**：每張文件以 4×6 cells 的細分 WebGL Mesh 對整張剛性平面做 pinhole 投影，依自己的左右 lane 取得相反 yaw、依縱深取得 pitch，UV 不再沿兩個大型三角形的對角線折彎，速度也不會額外拉長紙面。
+- **旋轉矩陣與 Swept 碰撞**：一般文件（`paper-generated-v1.png`）與反彈文件（`returnable-generated-v1.png`）在進入近景基準（40×52 logical px）前完成左右 lane 的梯形透視校正，再依 seeded RNG 以非零角速度隨機順時針或逆時針旋轉；碰撞四角使用相同的後旋轉矩陣。遠景不參與碰撞，進入近景時可見中心與實際文件四角精確交接，低 FPS 越界幀則使用 swept collision。近景文件延續各自透視入口的投影末端速度並向外加速，等完整卡面離開 padded viewport 後便逐張回收。
+
+### 效能優化與自適應 Viewport
+- **批次繪製與快取**：文件不繪製綠色速度軸或拖尾，閒置 Mesh 使用 dirty cache，HUD／debug texture 只在內容變動或固定低頻率時重畫，viewport resize 亦合併到 animation frame，避免手機上逐物件與逐幀的重複成本。
+- **Live Viewport 自適應**：首頁、戰鬥與結束頁皆依 live visual viewport 填滿；手機判斷以尺寸和方向為準，不依賴不穩定的 pointer／hover 回報，並另有 iOS／Android standalone PWA fallback 與 safe-area padding。
 
 ## 技術棧
 
@@ -95,7 +123,11 @@ OPENAI_TIMEOUT_MS=5500
 
 招式包含 `paper_rain`、`comment_crossfire`、`deadline_beam`、`closing_walls`、`revision_homing`、`returnable_burst`、`top_downpour`、`pulse_barrage`、`alternating_zipper`。其中 `top_downpour` 使用畫面正上方的獨立垂直透視射線，`pulse_barrage` 以齊射與停頓形成節奏，`alternating_zipper` 則左右交替加速；三者皆保留可預讀的安全通道。開發版與正式版預設共用完整九招池，AI 成功或離線 fallback 都以 BossDNA seed 洗牌，每輪九招各出現一次，下一輪重新洗牌且不與上一輪最後一招重複。選招與彈幕布局使用獨立 RNG，因此同一 BossDNA 重玩會重現選招順序，玩家移動不會改變下一輪的招式順序。API 的 BossDNA 仍維持三段設定，遊戲保留這三招各自的強度與時間，其餘招式使用既有平衡預設；重複指定同一招時採第一筆。`?demo=all` 已無須使用；`?demo=off` 僅在開發版保留原始三段固定序列，供單招診斷與既有測試使用，正式版忽略此參數。戰鬥布局與選招都不使用 `Math.random()`。
 
-AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念。生成分成兩個連續 API 呼叫，每批 6 句；loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句，受傷、反彈、弱點開啟與主要撞擊時也會觸發。
+AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念，以及 5 句每句最多 12 字、專供 `comment_crossfire` 文件使用的短註解。生成分成兩個連續 API 呼叫，每批 6 句戰鬥碎念；第一批同時產生短註解，loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句碎念，受傷、反彈、弱點開啟與主要撞擊時也會觸發；註解交叉火力則直接使用本局 LLM 產生的短註解，只有 AI 失敗時才回退固定文案。
+
+戰鬥配樂 `NULL SIGNAL` 是原創的 116 BPM 極簡電子樂，正式來源由 `src/audio/MusicRegistry.ts` 的 `battle.main` 接口映射到 `public/assets/audio/music/noxcat-battle-loop-v1.ogg`。後續可直接覆換 OGG，或只改 registry 指向新的版本檔；BattleScene 不含硬編路徑。音檔載入／解碼失敗時才使用 Web Audio 程式化 fallback，斷網仍可遊玩。頁面失焦或橫向暫停時停止播放，回到遊戲才恢復；開始頁的「配樂與音效」可一次關閉整套聲音。替換格式與音量建議記載於 `public/assets/audio/music/README.md`。
+
+首頁按鈕使用三層品牌短音；拉弓以主聲帶、泛音與音高／音量顫動模擬「喵—敖敖敖」的果凍貓叫，並依實際拉力升高，放開、取消、失焦或弱點窗口關閉時立即淡出；Boss 最後一擊則停止戰鬥循環，播放與 2.8 秒碎片崩塌同步的低頻坍縮、碎片節奏、快速大調五聲音階與明亮終止和弦。這些即時合成音效共用同一個總靜音設定，不需要額外網路請求。
 
 ## 相機與隱私
 
@@ -172,7 +204,7 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 
 - [x] Gate 0：Vite／Express／Phaser 單一服務、以 540×960 為 authored world 並以等比延伸相機填滿 live viewport 的 responsive canvas、production build。
 - [x] Gate 1：fallback 垂直切片、果凍彈簧拖曳、hit／graze／energy、三擊勝利、結果頁。
-- [x] Gate 2：九種 deterministic pattern、左右超掃近端平面、Boss／側牆／正上方多入口透視射入、危險區預警／安全路徑／清場空檔、反彈文件、180 秒失敗、音效、失焦暫停、debug、mobile E2E。
+- [x] Gate 2：九種 deterministic pattern、左右超掃近端平面、Boss／側牆／正上方多入口透視射入、危險區預警／安全路徑／清場空檔、反彈文件、180 秒失敗、動態程式化配樂與音效、失焦暫停、debug、mobile E2E。
 - [x] Gate 3：BossDNA Schema、OpenAI-compatible v1 Chat Completions Structured Outputs、可設定 local LLM base URL、rate limit、4 KB body、server/client 雙層 fallback。
 - [x] Gate 4：明確同意、2 秒 median baseline、Worker 8–10 Hz、main-thread fallback、Neutral/EMA、完整清理。
 - [ ] Gate 5：官方素材／指南整合、PWA meta 與 standalone viewport fallback、首頁／戰鬥／結束頁全螢幕 resize、危險區／安全路徑、橫向暫停、維持原比例的延伸相機、低 FPS 視覺降級／批次繪製、Boss 九層爆炸塌落與 Android Chrome／iPhone WebKit profile 自動 QA 已完成；提交前仍需 Android Chrome、iPhone Safari 與實體相機人工驗收。
@@ -187,4 +219,4 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 - 自動化測試以合成、完全不開啟真實鏡頭的 frame 驗證相機成功、權限拒絕、略過、Neutral 加成／抑制、無臉與資源清理；它不等同實體相機驗收。
 - 戰鬥倒數本身是 180 秒；加上 Boss 登場與結果轉場後，未提前結束的一局 wall-clock 會略超過 3 分鐘，與早期「單局 3 分鐘內」規格存在衝突。
 - Phaser 主 bundle 約 1.37 MB（gzip 約 367 KB）；Face worker／vision bundle 已分離，只有在固定說明頁按下校正並授予相機權限後才啟動推論。
-- 沒有背景音樂；音效使用首次遊戲手勢後解鎖的 Web Audio 合成提示音。
+- 配樂音檔與合成音效皆在首次使用者手勢後解鎖 Web Audio；真機仍需人工驗證 iPhone Safari 靜音鍵／省電模式與 Android Chrome 音訊焦點行為。

@@ -118,6 +118,7 @@ export interface AttackDirectorHooks {
 export interface AttackSequenceConfig {
   readonly attacks: readonly AttackStep[];
   readonly shuffleSeed?: number;
+  readonly commentLines?: readonly string[];
 }
 
 export class AttackDirector {
@@ -397,6 +398,7 @@ export class AttackDirector {
       projectiles: this.projectiles,
       speedScale,
       waveIndex: this.volley,
+      commentLines: this.dna.commentLines,
     };
     switch (pattern) {
       case 'paper_rain': {

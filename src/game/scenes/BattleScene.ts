@@ -160,12 +160,18 @@ export class BattleScene extends Phaser.Scene {
     this.aimGuide = new AimGuide(this);
     this.audio = new AudioSystem();
     this.audio.setEnabled(runtime.soundEnabled);
+    this.audio.setMusicMode('intro');
+    this.audio.startMusic('battle.main');
+    // A submit, camera, or skip gesture has already happened before the Scene
+    // exists. Browsers requiring a canvas gesture retry from setupInput.
+    void this.audio.unlock();
     this.setupBossChatter();
     const fixedSequence = import.meta.env.DEV ? runtime.attackSequence : undefined;
     this.director = new AttackDirector(
       {
         attacks: fixedSequence ?? createAttackPool(runtime.boss.attacks),
         shuffleSeed: fixedSequence ? undefined : runtime.boss.seed,
+        commentLines: runtime.boss.commentLines,
       },
       new SeededRng(runtime.boss.seed),
       this.projectiles,
@@ -222,6 +228,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.session.state !== BattleState.INTRO && !isTerminalBattleState(this.session.state)) {
       this.simulationUpdateCount += 1;
       this.session.advanceTime(delta);
+      this.syncMusicToBattleState();
       this.currentPacing = computePacing({
         elapsedMs: this.session.elapsedMs,
         remainingMs: this.session.remainingMs,
@@ -630,7 +637,7 @@ export class BattleScene extends Phaser.Scene {
 
   private setupInput(): void {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      void this.audio.unlock();
+      const audioReady = this.audio.unlock();
       if (this.focusPaused || this.activePointerId !== null) return;
       const world = viewportPointToWorld(this.viewportLayout, pointer.x, pointer.y);
       this.lastInputSample = {
@@ -648,7 +655,12 @@ export class BattleScene extends Phaser.Scene {
           this.aimAnchor.set(this.noxcat.x, this.noxcat.y);
           this.aimPointer.set(world.x, world.y);
           this.noxcat.beginAim();
-          this.audio.play('draw');
+          void audioReady.then(() => {
+            if (this.session.state === BattleState.AIMING && this.activePointerId === pointer.id) {
+              this.audio.startDraw();
+              this.audio.setDrawTension(this.aimPull / AIM_MAX_PULL);
+            }
+          });
         }
         return;
       }
@@ -672,6 +684,7 @@ export class BattleScene extends Phaser.Scene {
       if (this.session.state === BattleState.AIMING) {
         this.aimPointer.set(world.x, world.y);
         this.aimPull = this.noxcat.updateAim(world.x, world.y, this.aimAnchor.x, this.aimAnchor.y);
+        this.audio.setDrawTension(this.aimPull / AIM_MAX_PULL);
         this.aimGuide.show(this.aimAnchor.x, this.aimAnchor.y, world.x, world.y);
       } else if (this.dragging && this.session.state === BattleState.DODGING) {
         this.noxcat.setPointerTarget(world.x, world.y);
@@ -692,6 +705,7 @@ export class BattleScene extends Phaser.Scene {
       this.dragging = false;
       if (releasedDodge) this.noxcat.releaseDrag();
       if (this.session.state !== BattleState.AIMING) return;
+      this.audio.stopDraw();
       this.aimGuide.hide();
       const pullVector = this.aimAnchor.clone().subtract(this.aimPointer);
       const launched = this.session.releaseAim(this.aimPull);
@@ -1023,6 +1037,7 @@ export class BattleScene extends Phaser.Scene {
         this.pauseResumeTimer = undefined;
         if (!this.focusPaused) this.cancelPointerInteraction();
         this.focusPaused = true;
+        this.audio.setMusicPaused(true);
         // Returning early from Scene.update is not enough to pause Phaser's
         // Clock: delayed calls (intro, stagger, hit relief, and launch return)
         // are advanced by the Scene systems before update runs. Freeze that
@@ -1040,6 +1055,7 @@ export class BattleScene extends Phaser.Scene {
           this.pauseResumeTimer = undefined;
           if (document.hidden || touchLandscapeQuery.matches || this.ended) return;
           this.focusPaused = false;
+          this.audio.setMusicPaused(false);
           if (this.session.state === BattleState.DODGING && !this.hitReliefTimer) {
             this.director.resume(false);
           }
@@ -1125,6 +1141,7 @@ export class BattleScene extends Phaser.Scene {
       this.noxcat.cancelDrag();
     }
     if (this.session.state !== BattleState.AIMING) return;
+    this.audio.stopDraw();
     this.aimGuide.hide();
     this.session.releaseAim(0);
     this.noxcat.cancelAim(this.aimAnchor.x, this.aimAnchor.y);
@@ -1349,7 +1366,8 @@ export class BattleScene extends Phaser.Scene {
     this.hud.clearFlash();
     this.boss.setWeakPointVisible(false);
     const won = this.session.state === BattleState.WON;
-    this.audio.play(won ? 'win' : 'lose');
+    this.audio.stopMusic();
+    this.audio.play(won ? 'bossDefeat' : 'lose');
     this.hud.setStateMessage(won ? 'BOSS DEFEATED' : 'NOXCAT OVERLOADED');
     if (won) this.boss.playDefeatCollapse();
     const snapshot = this.session.snapshot();
@@ -1365,6 +1383,19 @@ export class BattleScene extends Phaser.Scene {
       ? BOSS_DEFEAT_DURATION_MS
       : import.meta.env.DEV && window.__NOXCAT_TEST__ ? 100 : 900;
     this.time.delayedCall(resultDelay, () => window.dispatchEvent(new CustomEvent<BattleResultDetail>('noxcat:battle-result', { detail })));
+  }
+
+  private syncMusicToBattleState(): void {
+    const modes = {
+      [BattleState.INTRO]: 'intro',
+      [BattleState.DODGING]: 'dodge',
+      [BattleState.VULNERABLE]: 'vulnerable',
+      [BattleState.AIMING]: 'aiming',
+      [BattleState.LAUNCHED]: 'launched',
+      [BattleState.STAGGERED]: 'staggered',
+    } as const;
+    if (this.session.state === BattleState.WON || this.session.state === BattleState.LOST) return;
+    this.audio.setMusicMode(modes[this.session.state]);
   }
 
   private cleanup(): void {

@@ -21,6 +21,7 @@ export const AttackStepSchema = z
   .strict();
 
 export const BattleLineSchema = z.string().min(1).max(28);
+export const CommentLineSchema = z.string().min(1).max(12);
 
 const BossCoreShape = {
   schemaVersion: z.literal(1),
@@ -30,6 +31,7 @@ const BossCoreShape = {
   weakPointLabel: z.string().min(1).max(12),
   theme: z.enum(['office', 'school', 'social', 'bug', 'weather', 'daily']),
   attacks: z.array(AttackStepSchema).length(3),
+  commentLines: z.array(CommentLineSchema).length(5),
 } as const;
 
 export const BossInitialBatchSchema = z

@@ -67,6 +67,17 @@ describe('generateBoss OpenAI trust boundary', () => {
     }));
   });
 
+  it('keeps dedicated LLM comment-crossfire lines in the generated BossDNA', async () => {
+    const commentLines = ['需求又轉彎', '昨天版本呢', '這裡再微調', '今晚能上嗎', '最終版加一'];
+    const generatedBoss = { ...FALLBACK_BOSS, commentLines };
+    const { client } = createClientWithParsedOutput(generatedBoss);
+
+    await expect(generateBoss('需求每天都在變', {
+      client,
+      requestId: 'ai-comment-lines',
+    })).resolves.toEqual({ source: 'ai', boss: generatedBoss });
+  });
+
   it('generates the first and continuation batches as six lines each', async () => {
     const initialBatch = {
       ...FALLBACK_BOSS,

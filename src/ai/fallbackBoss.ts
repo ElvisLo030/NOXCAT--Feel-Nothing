@@ -14,6 +14,7 @@ export const FALLBACK_BOSS = {
     { pattern: 'returnable_burst', intensity: 2, durationMs: 7_000 },
     { pattern: 'top_downpour', intensity: 3, durationMs: 7_000 },
   ],
+  commentLines: ['這裡對齊', '字再大一點', '再改一下', '今天要上', '最終版呢'],
   battleLines: [
     '這版先叫最終版。',
     '我只再改一個地方。',
@@ -36,6 +37,7 @@ export function createFallbackBoss(): BossDNA {
   return {
     ...FALLBACK_BOSS,
     attacks: FALLBACK_BOSS.attacks.map((attack) => ({ ...attack })),
+    commentLines: [...FALLBACK_BOSS.commentLines],
     battleLines: [...FALLBACK_BOSS.battleLines],
   };
 }
