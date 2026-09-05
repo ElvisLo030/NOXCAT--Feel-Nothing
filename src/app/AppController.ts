@@ -26,6 +26,11 @@ export class AppController {
   private soundEnabled = true;
   private gogglesVisible = true;
   private generation = 0;
+  private loadingProgressFrame: number | null = null;
+  private loadingProgress = 0;
+  private loadingProgressCeiling = 48;
+  private loadingProgressComplete = false;
+  private loadingProgressLastTime = 0;
   private faceActivityDetectedCount = 0;
   private pendingBattleStatus = '';
   private readonly faceTestProbeEnabled = (() => {
@@ -47,6 +52,7 @@ export class AppController {
   private showStartScreen(restoreFocus = false): void {
     this.root.classList.remove('battle-active');
     this.generation += 1;
+    this.stopLoadingProgressAnimation();
     this.destroyGame();
     void this.stopFace();
     this.root.innerHTML = `
@@ -143,17 +149,16 @@ export class AppController {
       undefined,
       (progress) => {
         if (requestGeneration === this.generation) {
-          this.updateLoadingProgress(
-            progress.percent,
-            progress.completedBatches,
-            progress.message,
-          );
+          this.updateLoadingProgress(progress.percent);
         }
       },
     );
     if (requestGeneration !== this.generation) return;
-    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 180));
+    // Keep the completed cyber dial on screen long enough to register even
+    // when the local fallback resolves almost instantly.
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 650));
     if (requestGeneration !== this.generation) return;
+    this.stopLoadingProgressAnimation();
     this.latestBoss = result;
     if (this.wantsCamera) this.showCameraConsent();
     else this.launchBattle(result);
@@ -161,38 +166,85 @@ export class AppController {
 
   private showLoadingScreen(): void {
     this.root.classList.remove('battle-active');
+    this.stopLoadingProgressAnimation();
     this.root.innerHTML = `
       <main class="screen loading-screen" aria-live="polite" aria-busy="true" aria-labelledby="loading-title">
-        <div class="compiler-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <p class="eyebrow">BOSS COMPILER v1.0</p>
         <h2 id="loading-title" tabindex="-1">AI 正在把煩惱<br>編譯成 BOSS…</h2>
-        <div class="compile-bar" role="progressbar" aria-label="AI 對話生成進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
-        <p class="compile-count" data-loading-count>0 / 2 批・0%</p>
-        <p class="loading-copy" data-loading-copy>正在生成第一批 6 句對話…</p>
-        <p class="loading-detail">每批 6 句，共生成 12 句不重複的繁體中文對話</p>
+        <div class="compile-ring-shell">
+          <div class="compile-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="compile-ring" role="progressbar" aria-label="AI 對話生成進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span class="compile-ticks" aria-hidden="true"></span>
+            <span class="compile-scanner" aria-hidden="true"></span>
+            <span class="compile-core" aria-hidden="true">
+              <strong data-loading-percent>0%</strong>
+              <small>DNA SYNC</small>
+            </span>
+          </div>
+        </div>
       </main>
     `;
+    this.startLoadingProgressAnimation();
     requireElement<HTMLElement>(this.root, '#loading-title').focus({ preventScroll: true });
   }
 
-  private updateLoadingProgress(
-    percent: number,
-    completedBatches: number,
-    message: string,
-  ): void {
-    const progressBar = this.root.querySelector<HTMLElement>('.compile-bar');
-    const count = this.root.querySelector<HTMLElement>('[data-loading-count]');
-    const copy = this.root.querySelector<HTMLElement>('[data-loading-copy]');
-    if (!progressBar || !count || !copy) return;
+  private updateLoadingProgress(percent: number): void {
+    const safePercent = Math.max(0, Math.min(100, percent));
+    this.loadingProgressCeiling = safePercent >= 100
+      ? 100
+      : safePercent >= 50
+        ? 94
+        : 48;
+    this.loadingProgressComplete = safePercent >= 100;
+  }
+
+  private startLoadingProgressAnimation(): void {
+    this.loadingProgress = 0;
+    this.loadingProgressCeiling = 48;
+    this.loadingProgressComplete = false;
+    this.loadingProgressLastTime = performance.now();
+    this.renderLoadingProgress(0);
+
+    const animate = (time: number): void => {
+      const deltaSeconds = Math.min(0.1, Math.max(0, time - this.loadingProgressLastTime) / 1000);
+      this.loadingProgressLastTime = time;
+      const smoothing = this.loadingProgressComplete ? 9.5 : 0.62;
+      const blend = 1 - Math.exp(-smoothing * deltaSeconds);
+      this.loadingProgress += (this.loadingProgressCeiling - this.loadingProgress) * blend;
+      if (this.loadingProgressComplete && this.loadingProgressCeiling - this.loadingProgress < 0.12) {
+        this.loadingProgress = 100;
+      }
+      this.renderLoadingProgress(this.loadingProgress);
+      if (this.loadingProgress < 100 && this.root.querySelector('.loading-screen')) {
+        this.loadingProgressFrame = window.requestAnimationFrame(animate);
+      } else {
+        this.loadingProgressFrame = null;
+      }
+    };
+    this.loadingProgressFrame = window.requestAnimationFrame(animate);
+  }
+
+  private renderLoadingProgress(percent: number): void {
+    const progressBar = this.root.querySelector<HTMLElement>('.compile-ring');
+    const percentLabel = this.root.querySelector<HTMLElement>('[data-loading-percent]');
+    if (!progressBar || !percentLabel) return;
 
     const safePercent = Math.max(0, Math.min(100, percent));
-    progressBar.style.setProperty('--progress', `${safePercent}%`);
-    progressBar.setAttribute('aria-valuenow', String(safePercent));
-    setSafeText(count, `${completedBatches} / 2 批・${safePercent}%`);
-    setSafeText(copy, message);
+    const roundedPercent = Math.round(safePercent);
+    progressBar.style.setProperty('--progress', `${safePercent.toFixed(2)}%`);
+    progressBar.setAttribute('aria-valuenow', String(roundedPercent));
+    setSafeText(percentLabel, `${roundedPercent}%`);
+  }
+
+  private stopLoadingProgressAnimation(): void {
+    if (this.loadingProgressFrame !== null) {
+      window.cancelAnimationFrame(this.loadingProgressFrame);
+      this.loadingProgressFrame = null;
+    }
   }
 
   private showCameraConsent(message = ''): void {
+    this.stopLoadingProgressAnimation();
     this.root.classList.remove('battle-active');
     this.root.innerHTML = `
       <main class="screen camera-screen" aria-labelledby="camera-title" aria-describedby="camera-privacy">
@@ -329,6 +381,7 @@ export class AppController {
   }
 
   private launchBattle(result: BossApiResult): void {
+    this.stopLoadingProgressAnimation();
     this.destroyGame();
     this.root.classList.add('battle-active');
     this.root.innerHTML = `

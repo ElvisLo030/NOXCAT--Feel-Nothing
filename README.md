@@ -2,7 +2,7 @@
 
 > 你的煩惱是 Boss；NOXCAT 自己就是果凍砲彈。
 
-一款目標約 60 秒通關、90 秒截止的直式手機瀏覽器 Boss 戰。輸入今天最煩的事，伺服器會把它編譯成安全且可重現的 `BossDNA`；拖曳 NOXCAT 閃避文件、擦彈充滿 `FEEL NOTHING`，再向後拉伸並把果凍貓射向 Boss。倒數涵蓋拉弓、飛行與硬直，90 秒是整局上限，約 60 秒通關是數值平衡目標；失焦與橫向暫停不計時。
+一款目標約 60 秒通關、90 秒截止的直式手機瀏覽器 Boss 戰。輸入今天最煩的事，伺服器會把它編譯成安全且可重現的 `BossDNA`；拖曳 NOXCAT 閃避文件、擦彈充滿 `FEEL NOTHING`，再向後拉伸並把果凍貓射向 Boss。倒數涵蓋拉弓、飛行與硬直，90 秒是整局上限，約 60 秒通關是數值平衡目標；失焦與橫向暫停不計時。本文件以目前實際執行的程式與 `.env.example` 為準。
 
 ## Screenshots
 
@@ -58,6 +58,24 @@
 - MediaPipe Face Landmarker（本地 model／WASM、Worker 推論）
 - Vitest + Playwright（390×844 Android Chrome profile、iPhone WebKit profile）
 
+## 現行 Runtime 規格
+
+下列數值直接對應目前程式；若與早期企劃或 `AGENTS.md` 不同，以 `src/game/constants.ts`、`src/ai/bossClient.ts`、`src/ai/bossSchema.ts` 與 server 實作為準。
+
+| 項目 | 現行設定 |
+| --- | --- |
+| 戰鬥倒數 | 90 秒上限，目標約 60 秒通關；拉弓、飛行與硬直也計時；失焦與橫向暫停不計時 |
+| 攻擊池 | 9 種；BossDNA 指定 3 段參數，runtime 以 seed 編排完整攻擊池 |
+| 戰鬥台詞 | 兩批生成，每批 6 句，共 12 句不重複台詞；第一批另產生 5 句交叉火力短註解 |
+| 擦彈能量 | 每顆 10 點；每顆傷害彈幕只計算一次 |
+| 波次能量 | 完成一波 +24，無傷另 +10 |
+| Neutral 加成 | 分數達 88 時每秒增加 1.4 能量；相機模式不是通關條件 |
+| 玩家操作 | 全場域拖曳、手指上方 72 logical px、中心最高 Y=774、最大跟隨速度 1,500 logical px/s |
+| 主要撞擊 | 每次 34 傷害，Boss 132 HP，通常四次可擊敗；反彈 3 傷害，不能完成最後一擊 |
+| 弱點窗口 | 5,000ms |
+| 瀏覽器 API timeout | 每個生成階段 10,000ms，失敗後使用 fallback |
+| Server 模型 timeout | 未設定環境變數時為 5,500ms；目前 `.env.example` 的本地模型設定為 9,000ms |
+
 ## 安裝與啟動
 
 需要 Node.js 22.12 以上；本專案開發驗證使用 Node 24.19。
@@ -82,29 +100,29 @@ npm run dev
 ## 環境變數
 
 ```env
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5-mini
-OPENAI_BASE_URL=
-OPENAI_INITIAL_PROMPT="Always use zh-Hant-TW Traditional Chinese for every player-facing text field. Never output Simplified Chinese. Make the boss verbose, witty, and unmistakably related to the user's annoyance."
-OPENAI_TIMEOUT_MS=5500
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_MODEL=gemma4:e2b
+OPENAI_API_KEY=local-ollama
+OPENAI_INITIAL_PROMPT="Always use zh-Hant-TW Traditional Chinese for every player-facing text field. Never output Simplified Chinese. Keep every line witty, concise, and clearly related to the user's annoyance."
+OPENAI_TIMEOUT_MS=9000
 PORT=4173
 ```
 
-- AI 呼叫使用 OpenAI-compatible `POST /v1/chat/completions`。連接 OpenAI 時可將 `OPENAI_BASE_URL` 留空；連接本地 LLM 時填入服務的 v1 root，例如 `http://127.0.0.1:11434/v1`。
-- 本地服務不要求驗證時可將 `OPENAI_API_KEY` 留空；只要有 `OPENAI_BASE_URL`，server 仍會呼叫本地模型。若服務要求 token，請正常填入 API key。
-- 沒有 `OPENAI_API_KEY` 且沒有 `OPENAI_BASE_URL`、斷網、模型拒絕、非 2xx、無效 JSON/schema 或 API 超過 6 秒時，客戶端會立即使用本地 fallback Boss。
+- `.env.example` 預設連接同機 Ollama 的 OpenAI-compatible `POST /v1/chat/completions`，模型為 `gemma4:e2b`；使用前需先讓本地服務載入相同模型。Ollama 請求會明確設定 `think: false`，避免推理內容占用結構化輸出的延遲與空間。
+- 本地服務不要求驗證時可使用非機密 placeholder；若服務要求 token，請改成實際 server-side 金鑰。
+- 沒有可用的 API 設定、斷網、模型拒絕、非 2xx、無效 JSON/schema，或任一生成階段超過瀏覽器 10 秒限制時，客戶端會使用本地 fallback。若只在第二批失敗，會保留合法的第一批 Boss 資料並補入備用台詞。
 - API key 只由 Node server 讀取，不會進入前端 bundle、HTML 或 localStorage。
-- `OPENAI_MODEL` 只在伺服器端設定；OpenAI 預設為 `gpt-5-mini`，本地服務請改成已載入的模型名稱。
+- `OPENAI_MODEL` 只在伺服器端設定。程式未設定時預設為 `gpt-5-mini`；repository 的 `.env.example` 則明確覆寫為本地 `gemma4:e2b`。
+- `OPENAI_TIMEOUT_MS` 是每次 server-to-model 呼叫的限制；瀏覽器對初始批次與續批各自保留 10 秒。範例中的 9 秒是為本地模型保留較長推論時間，同時早於瀏覽器中止請求。
 - `OPENAI_INITIAL_PROMPT` 會放在固定安全規則之前，可用來補充本地模型指令；固定規則不會被取代。
 - 所有 AI 產生的玩家可見文字都會在 server 端以 OpenCC 轉成台灣繁體，再次通過 `BossDNASchema` 後才回傳，因此不只依賴模型遵守提示詞。
 
-例如 Ollama 的 OpenAI-compatible endpoint：
+改用 OpenAI cloud 時，可將三個模型連線值改為：
 
 ```env
-OPENAI_BASE_URL=http://127.0.0.1:11434/v1
-OPENAI_MODEL=qwen3:8b
-OPENAI_API_KEY=
-OPENAI_INITIAL_PROMPT="Always use zh-Hant-TW Traditional Chinese for every player-facing text field. Never output Simplified Chinese. Make the boss verbose, witty, and unmistakably related to the user's annoyance."
+OPENAI_BASE_URL=
+OPENAI_MODEL=gpt-5-mini
+OPENAI_API_KEY=sk-your-openai-api-key
 OPENAI_TIMEOUT_MS=5500
 ```
 
@@ -118,6 +136,7 @@ OPENAI_TIMEOUT_MS=5500
 - 開始頁可切換額前護目鏡；貓身、眼睛與護目鏡是獨立圖層。
 - 每波先有 500–750ms 預警，九種招式均增加文件量並保留安全通道。文件牆以左右紙疊、側邊文件匣、缺口光軌與箭頭提示來向，缺口連續移動，預警範圍與可移動區共用上下界。雷射結束後會追加 5–7 張文件，保留同一避難點。反彈波先射 5–6 張普通文件，1,250ms 時解除其傷害並讓其離場，再隔 240ms 射出第一張綠色文件，第二張間隔 1,000ms；其餘每兩波之間穿插一張綠色文件，保留 2,300ms 獨立接近與操作段。已滿能量時直接進入弱點窗口，取消尚未出現的補給。綠色文件不會傷害玩家，須以高速碰撞反射。
 - 每顆文件只可擦彈一次，每次 +10 能量；每波完成 +24，無傷另 +10，相機 Neutral 加成每秒 +1.4。能量上限仍為 100。
+- 啟用相機並完成校正後，Neutral 達標可提供藍色閃電能量加成；玩家略過或拒絕相機仍能靠擦彈完成整局。
 - 帶空心框與旋轉箭頭的文件可在高速移動時撞回 Boss。
 - 能量滿後，按住 NOXCAT、向想發射方向的反方向拉、放開。
 - Boss 為 132 HP，每次主要撞擊 34 傷害，通常四次擊中可勝利；反彈命中造成 3 傷害、增加 16 能量。反彈不能直接完成最後一擊。
@@ -228,6 +247,6 @@ HX370 production 與 GitHub Actions 自動部署的設定、驗證及復原方�
 - 此環境未設定 `OPENAI_API_KEY`；Structured Outputs、Zod 驗證、mock AI success 與實際 fallback 均已通過，但仍需在本機 `.env` 設定有效 key，確認真實 API 回傳 `source: ai` 並完整玩完一局。
 - Playwright 的 Pixel 5／iPhone 13 是桌面端裝置 profile，不等同真 Android Chrome／iPhone Safari。真機觸控、safe-area、旋轉、音訊解鎖、切換分頁恢復、相機系統指示燈關閉、不同光線／角度與中階手機 55–60 FPS 仍需人工驗收。
 - 自動化測試以合成、完全不開啟真實鏡頭的 frame 驗證相機成功、權限拒絕、略過、Neutral 加成／抑制、無臉與資源清理；它不等同實體相機驗收。
-- 戰鬥倒數為 90 秒，Boss 登場與結果動畫另計；失焦或橫向暫停不計入倒數。
+- 戰鬥倒數為 90 秒，Boss 登場與結果動畫另計；失焦或橫向暫停不計入倒數。正式提交前仍需以真機量測完整 wall-clock 流程。
 - Phaser 主 bundle 約 1.37 MB（gzip 約 367 KB）；Face worker／vision bundle 已分離，只有在固定說明頁按下校正並授予相機權限後才啟動推論。
 - 配樂音檔與合成音效皆在首次使用者手勢後解鎖 Web Audio；真機仍需人工驗證 iPhone Safari 靜音鍵／省電模式與 Android Chrome 音訊焦點行為。

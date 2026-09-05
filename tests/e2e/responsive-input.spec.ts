@@ -42,7 +42,7 @@ test('camera consent and result screens keep focus, statistics, and actions acce
   const longBossName = 'W'.repeat(24);
   const longResultLine = 'R'.repeat(48);
   await page.route('**/api/boss', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 650));
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -58,6 +58,14 @@ test('camera consent and result screens keep focus, statistics, and actions acce
   const loadingTitle = page.getByRole('heading', { name: /AI 正在把煩惱.*編譯成 BOSS/ });
   await expect(loadingTitle).toBeFocused();
   await expect(page.locator('.loading-screen')).toHaveAttribute('aria-busy', 'true');
+  const compileProgress = page.getByRole('progressbar', { name: 'AI 對話生成進度' });
+  await expect(compileProgress).toBeVisible();
+  await expect(page.locator('.compile-ring-shell')).toBeVisible();
+  await expect(page.locator('.compile-count')).toHaveCount(0);
+  await expect.poll(async () => Number(await compileProgress.getAttribute('aria-valuenow')), {
+    timeout: 450,
+  }).toBeGreaterThan(0);
+  expect(Number(await compileProgress.getAttribute('aria-valuenow'))).toBeLessThan(50);
 
   const cameraTitle = page.getByRole('heading', { name: '面無表情模式' });
   await expect(cameraTitle).toBeVisible({ timeout: 5_000 });

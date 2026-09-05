@@ -11,6 +11,7 @@ const DEFEAT_STRIP_COUNT = 9;
 export const BOSS_DEFEAT_DURATION_MS = 2_800;
 
 export type BossDefeatState = 'idle' | 'collapsing' | 'complete';
+export type BossExpression = 'idle' | 'charging' | 'attacking' | 'recovering' | 'stunned';
 
 export class Boss extends Phaser.GameObjects.Container {
   readonly weakPoint: Phaser.GameObjects.Arc;
@@ -22,6 +23,7 @@ export class Boss extends Phaser.GameObjects.Container {
   private readonly weakLabel: Phaser.GameObjects.Text;
   private readonly visualLayers: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible>;
   private hp = BOSS_MAX_HP;
+  private expression: BossExpression = 'idle';
   private defeatState: BossDefeatState = 'idle';
   private defeatFragmentCount = 0;
 
@@ -138,6 +140,28 @@ export class Boss extends Phaser.GameObjects.Container {
     return this.defeatFragmentCount;
   }
 
+  get currentExpression(): BossExpression {
+    return this.expression;
+  }
+
+  setExpression(expression: BossExpression): void {
+    if (this.defeatState !== 'idle' || expression === this.expression) return;
+    this.expression = expression;
+    this.drawFace(this.hp / BOSS_MAX_HP);
+    this.scene.tweens.killTweensOf(this.face);
+    this.face
+      .setAlpha(0.45)
+      .setScale(BOSS_ART_SCALE * 0.9, BOSS_ART_SCALE * 1.08);
+    this.scene.tweens.add({
+      targets: this.face,
+      alpha: 1,
+      scaleX: BOSS_ART_SCALE,
+      scaleY: BOSS_ART_SCALE,
+      duration: expression === 'attacking' ? 105 : 150,
+      ease: 'Back.Out',
+    });
+  }
+
   setHp(hp: number): void {
     this.hp = Phaser.Math.Clamp(hp, 0, BOSS_MAX_HP);
     const ratio = this.hp / BOSS_MAX_HP;
@@ -179,6 +203,18 @@ export class Boss extends Phaser.GameObjects.Container {
   pulse(time: number): void {
     if (this.defeatState !== 'idle') return;
     this.glowImage.setAlpha(0.025 + (Math.sin(time * 0.004) + 1) * 0.025);
+    if (this.expression === 'attacking') {
+      this.face.setY(Math.sin(time * 0.022) * 2.5);
+      this.face.setRotation(Math.sin(time * 0.017) * 0.012);
+    } else if (this.expression === 'charging') {
+      this.face.setY(Math.sin(time * 0.01) * 1.2);
+      this.face.setRotation(0);
+    } else if (this.expression === 'recovering') {
+      this.face.setY(2 + Math.sin(time * 0.006) * 1.5);
+      this.face.setRotation(Math.sin(time * 0.007) * 0.018);
+    } else {
+      this.face.setY(0).setRotation(0);
+    }
   }
 
   /**
@@ -403,16 +439,65 @@ export class Boss extends Phaser.GameObjects.Container {
   private drawFace(hpRatio: number): void {
     this.face.clear();
     this.face.lineStyle(13, PALETTE.green, 1);
-    if (hpRatio > 0.33) {
-      this.face.lineBetween(-78, -45, -23, -17);
-      this.face.lineBetween(23, -17, 78, -45);
-      this.face.lineBetween(-58, 33, 0, 12);
-      this.face.lineBetween(0, 12, 58, 33);
-    } else {
-      this.face.lineBetween(-72, -31, -30, -26);
-      this.face.lineBetween(30, -26, 72, -31);
-      this.face.lineBetween(-50, 18, 0, 36);
-      this.face.lineBetween(0, 36, 50, 18);
+    switch (this.expression) {
+      case 'charging':
+        // Narrow eyes and a clenched mouth make the telegraph read as a charge-up.
+        this.face.lineBetween(-76, -30, -28, -25);
+        this.face.lineBetween(28, -25, 76, -30);
+        this.face.lineStyle(10, PALETTE.green, 1);
+        this.face.strokeRoundedRect(-49, 7, 98, 36, 8);
+        this.face.lineBetween(-42, 25, 42, 25);
+        break;
+      case 'attacking':
+        // Solid blade eyes and an angular grin give ACTIVE a sharper cyber look.
+        this.face.fillStyle(PALETTE.green, 1);
+        this.face.fillTriangle(-84, -45, -20, -25, -61, -4);
+        this.face.fillTriangle(84, -45, 20, -25, 61, -4);
+        this.face.lineStyle(12, PALETTE.green, 1);
+        this.face.beginPath();
+        this.face.moveTo(-59, 14);
+        this.face.lineTo(-41, 38);
+        this.face.lineTo(-18, 25);
+        this.face.lineTo(0, 49);
+        this.face.lineTo(18, 25);
+        this.face.lineTo(41, 38);
+        this.face.lineTo(59, 14);
+        this.face.strokePath();
+        this.face.lineStyle(6, PALETTE.green, 0.8);
+        this.face.lineBetween(-48, 17, 48, 17);
+        break;
+      case 'recovering':
+        // Drooping eyes and an uneven mouth sell the brief post-attack fatigue.
+        this.face.lineBetween(-72, -22, -31, -30);
+        this.face.lineBetween(31, -30, 72, -22);
+        this.face.lineStyle(11, PALETTE.green, 1);
+        this.face.lineBetween(-51, 31, -20, 22);
+        this.face.lineBetween(-20, 22, 18, 34);
+        this.face.lineBetween(18, 34, 51, 25);
+        break;
+      case 'stunned':
+        this.face.lineStyle(11, PALETTE.green, 1);
+        this.face.lineBetween(-73, -43, -29, -5);
+        this.face.lineBetween(-29, -43, -73, -5);
+        this.face.lineBetween(29, -43, 73, -5);
+        this.face.lineBetween(73, -43, 29, -5);
+        this.face.lineBetween(-48, 28, -18, 17);
+        this.face.lineBetween(-18, 17, 18, 38);
+        this.face.lineBetween(18, 38, 48, 27);
+        break;
+      case 'idle':
+        if (hpRatio > 0.33) {
+          this.face.lineBetween(-78, -45, -23, -17);
+          this.face.lineBetween(23, -17, 78, -45);
+          this.face.lineBetween(-58, 33, 0, 12);
+          this.face.lineBetween(0, 12, 58, 33);
+        } else {
+          this.face.lineBetween(-72, -31, -30, -26);
+          this.face.lineBetween(30, -26, 72, -31);
+          this.face.lineBetween(-50, 18, 0, 36);
+          this.face.lineBetween(0, 36, 50, 18);
+        }
+        break;
     }
   }
 
