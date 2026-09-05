@@ -1,16 +1,17 @@
 import type { SeededRng } from '../../utils/rng';
 import type { ProjectileConfig } from '../entities/Projectile';
-import { clearVerticalSafeWedgeForTunnelTarget } from '../systems/DangerTelegraph';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
 import { PLAYER_HIT_RADIUS } from '../constants';
 import {
-  ATTACK_NEAR_MAX_X,
-  ATTACK_NEAR_MIN_X,
-  evenlySpaced,
+  FALLING_ATTACK_MAX_X,
+  FALLING_ATTACK_MIN_X,
+  FALLING_ATTACK_ORIGIN_Y,
+  columnsOutsideLane,
   randomSignedYawOffset,
 } from './fairness';
 import {
   createPatternTimeline,
+  fitEmissionTimes,
   staggeredSpawnEvents,
   type AttackPatternContext,
   type AttackPatternHandle,
@@ -24,7 +25,7 @@ const PAPER_PROJECTILE_RADIUS = 18;
 const PAPER_LANE_EXCLUSION = PAPER_SAFE_LANE_HALF_WIDTH
   + PAPER_PROJECTILE_RADIUS
   + PLAYER_HIT_RADIUS
-  + 4;
+  + 38;
 
 export function planPaperRain(
   rng: SeededRng,
@@ -35,34 +36,22 @@ export function planPaperRain(
   // A whole AttackStep is one wave. Keep enough documents in that single
   // formation for graze-based players to charge without continuous spawning.
   const count = 7 + intensity;
-  const wideLaneCentres = evenlySpaced(ATTACK_NEAR_MIN_X, ATTACK_NEAR_MAX_X, count);
-  const durationBands = [1_450, 1_850, 2_300, 2_750] as const;
+  const wideLaneCentres = columnsOutsideLane(safeLaneCentre, PAPER_LANE_EXCLUSION, count);
+  const durationBands = [1_650, 1_950, 2_350, 2_750] as const;
   return Array.from({ length: count }, (_, index) => {
     // Build every formation across an overscanned near plane. Pure random
     // x-coordinates occasionally left both screen edges empty, allowing a
     // player to camp there for a complete wave.
-    let x = wideLaneCentres[index]! + rng.range(-14, 14);
-    if (Math.abs(x - safeLaneCentre) < PAPER_LANE_EXCLUSION) {
-      const leftCandidate = safeLaneCentre - PAPER_LANE_EXCLUSION;
-      const rightCandidate = safeLaneCentre + PAPER_LANE_EXCLUSION;
-      x = x < safeLaneCentre
-        ? leftCandidate >= ATTACK_NEAR_MIN_X ? leftCandidate : rightCandidate
-        : rightCandidate <= ATTACK_NEAR_MAX_X ? rightCandidate : leftCandidate;
-    }
+    const x = wideLaneCentres[index]!;
     const side = x < safeLaneCentre ? -1 : 1;
-    const y = -55 - rng.range(0, 180);
+    const y = FALLING_ATTACK_ORIGIN_Y - rng.range(0, 28);
     const vy = rng.range(220, 265 + intensity * 38) * speedScale;
     const vx = side * rng.range(4, 30) * speedScale;
     const perspectiveY = 820;
     const perspectiveTime = (perspectiveY - y) / Math.max(1, vy);
-    const perspectiveTarget = clearVerticalSafeWedgeForTunnelTarget(
-      {
-        x: Math.min(ATTACK_NEAR_MAX_X, Math.max(ATTACK_NEAR_MIN_X, x + vx * perspectiveTime)),
-        y: perspectiveY,
-      },
-      { center: safeLaneCentre, halfWidth: PAPER_SAFE_LANE_HALF_WIDTH },
-      side,
-      PAPER_PROJECTILE_RADIUS + PLAYER_HIT_RADIUS + 4,
+    const targetX = Math.min(
+      FALLING_ATTACK_MAX_X,
+      Math.max(FALLING_ATTACK_MIN_X, x + vx * perspectiveTime),
     );
     return {
       kind: 'paper' as const,
@@ -74,14 +63,15 @@ export function planPaperRain(
       vy,
       radius: PAPER_PROJECTILE_RADIUS,
       yawOffset: randomSignedYawOffset(rng, 8, 24),
+      perspectiveOrigin: { x, y: FALLING_ATTACK_ORIGIN_Y },
       perspectiveTarget: {
-        x: Math.min(ATTACK_NEAR_MAX_X, Math.max(ATTACK_NEAR_MIN_X, perspectiveTarget.x)),
+        x: targetX,
         y: perspectiveY,
       },
       // Independent deterministic depth clocks combine with timeline staging
       // so cards occupy visibly different near/mid/far planes.
-      perspectiveDurationMs: Math.round((durationBands[index % durationBands.length]!
-        + rng.range(-45, 45)) / Math.max(0.1, speedScale)),
+      perspectiveDurationMs: Math.max(1_250, Math.round((durationBands[index % durationBands.length]!
+        + rng.range(-45, 45)) / Math.max(0.1, speedScale))),
     };
   });
 }
@@ -108,8 +98,8 @@ export function runPaperRain(
     context.speedScale,
     safeLaneCentre,
   );
-  return createPatternTimeline(
-    context.durationMs,
-    staggeredSpawnEvents(context.projectiles, configs, 145),
-  );
+  const events = staggeredSpawnEvents(context.projectiles, configs, 145);
+  const times = fitEmissionTimes(events.map((event) => event.atMs), context.durationMs,
+    Math.max(...configs.map((config) => config.perspectiveDurationMs!)) + 150);
+  return createPatternTimeline(context.durationMs, events.map((event, index) => ({ ...event, atMs: times[index]! })));
 }

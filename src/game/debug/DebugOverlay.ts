@@ -138,8 +138,21 @@ export class DebugOverlay {
         );
     }
     for (const beam of projectiles.activeBeams()) {
+      const cosine = Math.cos(beam.angle);
+      const sine = Math.sin(beam.angle);
+      const halfLength = beam.length / 2;
+      const halfHeight = beam.height / 2;
+      const corners = [
+        { x: -halfLength, y: -halfHeight },
+        { x: halfLength, y: -halfHeight },
+        { x: halfLength, y: halfHeight },
+        { x: -halfLength, y: halfHeight },
+      ].map((point) => ({
+        x: beam.x + point.x * cosine - point.y * sine,
+        y: beam.y + point.x * sine + point.y * cosine,
+      }));
       this.hitboxGraphics.lineStyle(2, beam.telegraphMs > 0 ? PALETTE.green : PALETTE.midGray, 0.8)
-        .strokeRect(0, beam.y - beam.height / 2, 540, beam.height);
+        .strokePoints([...corners, corners[0]!], true);
     }
     const noxcatPolygon = noxcat.collisionPolygon();
     this.hitboxGraphics.lineStyle(2, PALETTE.white, 0.9)

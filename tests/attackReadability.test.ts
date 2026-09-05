@@ -16,8 +16,13 @@ import { SeededRng } from '../src/utils/rng';
 
 describe('readable attack directions and complete beats', () => {
   it('warns across the full horizontal laser instead of tapering its edges', () => {
-    const zones = dangerZonesForPattern('deadline_beam', undefined, undefined, 780);
-    expect(zones[0]).toMatchObject({ kind: 'rect', projection: 'screen', y: 758, height: 44 });
+    const zones = dangerZonesForPattern('deadline_beam', undefined, undefined, [
+      { x: 270, y: 780, angle: 0 },
+    ]);
+    expect(zones[0]).toMatchObject({ kind: 'ray', halfWidth: expect.any(Number) });
+    const ray = zones[0] as Extract<typeof zones[number], { kind: 'ray' }>;
+    expect(Math.abs(ray.to.x - ray.from.x)).toBeGreaterThan(500);
+    expect(Math.abs(ray.to.y - ray.from.y)).toBeLessThan(1);
   });
 
   it('uses a horizontal screen-space opening for walls entering from the sides', () => {

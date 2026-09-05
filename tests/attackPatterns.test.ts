@@ -52,7 +52,6 @@ import {
   radialNearPlaneVelocity,
   sampleTunnelProjection,
 } from '../src/game/systems/ProjectileDepth';
-import { verticalSafeWedgeBoundsAtY } from '../src/game/systems/DangerTelegraph';
 import { initialProjectileExitVelocity } from '../src/game/systems/ProjectileExitMotion';
 import type { ProjectileSystem } from '../src/game/systems/ProjectileSystem';
 import { SeededRng } from '../src/utils/rng';
@@ -160,10 +159,8 @@ function expectProjectedCollisionIntervalOutsideVerticalSafeWedge(
         + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
     };
     const projection = sampleTunnelProjection(trajectory, authoredPoint);
-    const wedge = verticalSafeWedgeBoundsAtY(
-      { center: laneX, halfWidth },
-      projection.position.y,
-    );
+    // 退件改為螢幕直向通道，預警與碰撞不再收斂到 Boss 消失點。
+    const wedge = { left: laneX - halfWidth, right: laneX + halfWidth };
     collisionStayedActive &&= projection.collisionActive;
     const clearance = side < 0
       ? wedge.left - (projection.position.x + collisionClearance)
@@ -182,9 +179,15 @@ describe('attack pattern fairness geometry', () => {
 
     expect(projectiles).toHaveLength(10);
     const nearTargets = projectiles.map((projectile) => projectile.perspectiveTarget?.x ?? projectile.x);
-    expect(Math.min(...nearTargets)).toBeLessThan(0);
-    expect(Math.max(...nearTargets)).toBeGreaterThan(540);
+    expect(Math.min(...nearTargets)).toBeLessThan(46);
+    expect(Math.max(...nearTargets)).toBeGreaterThan(494);
     for (const projectile of projectiles) {
+      expect(projectile.perspectiveOrigin).toEqual({
+        x: projectile.x,
+        y: projectile.perspectiveOrigin?.y,
+      });
+      expect(projectile.perspectiveOrigin?.y).toBeGreaterThan(80);
+      expect(projectile.perspectiveOrigin?.y).toBeLessThan(200);
       expect(projectile.y).toBeGreaterThan(PROJECTILE_RECYCLE_TOP);
       const radius = projectile.radius ?? 18;
       const requiredClearance = PAPER_SAFE_LANE_HALF_WIDTH + PLAYER_HIT_RADIUS + radius;
@@ -585,7 +588,7 @@ describe('attack pattern fairness geometry', () => {
         for (const laneX of paperLanes) {
           const configs = planPaperRain(new SeededRng(seed), intensity, 1, laneX);
           for (const config of configs) {
-            expectProjectedCollisionIntervalOutsideVerticalSafeWedge(
+            expectNearRayOutsideVerticalLane(
               config,
               laneX,
               PAPER_SAFE_LANE_HALF_WIDTH,
