@@ -1,7 +1,7 @@
 import type { SeededRng } from '../../utils/rng';
 import type { ProjectileConfig } from '../entities/Projectile';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
-import { randomSignedRotationSpeed } from './fairness';
+import { clampPlayerPosition, randomSignedRotationSpeed, type PlayerPosition } from './fairness';
 import {
   createPatternTimeline,
   staggeredSpawnEvents,
@@ -15,9 +15,11 @@ export function planRevisionHoming(
   rng: SeededRng,
   intensity: 1 | 2 | 3,
   speedScale: number,
+  playerPosition?: PlayerPosition,
 ): ProjectileConfig[] {
   const count = intensity === 3 ? 3 : 2;
   const approachMs = Math.round(2_200 / Math.max(0.1, speedScale));
+  const player = clampPlayerPosition(playerPosition);
   return Array.from({ length: count }, (_, index) => {
     const fromLeft = index % 2 === 0;
     return {
@@ -31,10 +33,11 @@ export function planRevisionHoming(
       rotationSpeed: randomSignedRotationSpeed(rng, 0.75, 1.65),
       // 進入可碰撞深度前至少留 400 ms 固定路線，讓玩家有機會移開。
       homingMs: Math.min(950 + intensity * 160, approachMs * 0.8 - 400),
-      perspectiveTarget: {
-        x: fromLeft ? 205 : 335,
-        y: 760,
-      },
+      homingOffsetX: fromLeft ? -54 : 54,
+      perspectiveTarget: clampPlayerPosition({
+        x: (player?.x ?? 270) + (fromLeft ? -54 : 54),
+        y: player?.y ?? 760,
+      }),
       perspectiveDurationMs: approachMs,
     };
   });
@@ -56,6 +59,7 @@ export function runRevisionHoming(context: AttackPatternContext): AttackPatternH
     context.rng,
     context.intensity,
     context.speedScale,
+    context.player,
   );
   return createPatternTimeline(
     context.durationMs,

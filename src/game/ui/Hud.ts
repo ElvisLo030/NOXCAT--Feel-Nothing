@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { GameSessionSnapshot } from '../../state/GameSession';
-import { PALETTE, PALETTE_CSS } from '../../theme/palette';
+import { COMBAT_CSS, PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { BOSS_MAX_HP, ENERGY_MAX, ROUND_DURATION_MS } from '../constants';
 import type { BattleViewportLayout } from '../systems/ViewportLayout';
 
@@ -132,12 +132,13 @@ export class Hud {
     this.drawEnergyBar(this.energyRatio);
   }
 
-  setStateMessage(message: string): void {
-    this.stateLabel.setText(message);
+  setStateMessage(message: string, danger = false): void {
+    this.stateLabel.setText(message).setColor(danger ? COMBAT_CSS.danger : PALETTE_CSS.green);
   }
 
-  flash(message: string, duration = 1100): void {
+  flash(message: string, duration = 1100, danger = false): void {
     this.toast.setText(message).setAlpha(1).setScale(0.82);
+    this.toast.setBackgroundColor(danger ? COMBAT_CSS.danger : PALETTE_CSS.green);
     this.toast.scene.tweens.killTweensOf(this.toast);
     this.toast.scene.tweens.add({
       targets: this.toast,

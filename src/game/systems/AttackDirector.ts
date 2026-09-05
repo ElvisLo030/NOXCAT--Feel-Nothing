@@ -103,6 +103,8 @@ export interface AttackDirectorHooks {
   player: Noxcat;
   onPatternChanged?: (pattern: PatternId) => void;
   onReturnableTutorial?: () => void;
+  onReturnableWindow?: () => void;
+  onDangerZonesChanged?: (zones: readonly DangerZoneHint[]) => void;
   onWavePhaseChanged?: (
     phase: WavePhase,
     pattern: PatternId,
@@ -411,7 +413,10 @@ export class AttackDirector {
         return runClosingWalls(
           context,
           this.wallSafeGap,
-          (safeGapY) => { this.wallSafeGap = safeGapY; },
+          (safeGapY) => {
+            this.wallSafeGap = safeGapY;
+            this.hooks.onDangerZonesChanged?.(this.currentDangerZones);
+          },
         );
       }
       case 'revision_homing':
@@ -421,6 +426,7 @@ export class AttackDirector {
           context,
           this.returnableSafeLane,
           () => {
+            this.hooks.onReturnableWindow?.();
             if (this.returnableTutorialShown) return;
             this.returnableTutorialShown = true;
             this.hooks.onReturnableTutorial?.();

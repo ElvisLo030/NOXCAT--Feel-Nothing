@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { PALETTE } from '../../theme/palette';
+import { COMBAT_COLORS } from '../../theme/palette';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { Noxcat } from '../entities/Noxcat';
 import { Projectile, type ProjectileConfig } from '../entities/Projectile';
@@ -47,14 +47,14 @@ export class ProjectileSystem {
       BOSS_PROJECTILE_ORIGIN.y,
       540,
       5,
-      PALETTE.green,
+      COMBAT_COLORS.danger,
       0.32,
     )
       .setStrokeStyle(1, 0xffffff, 0.75)
       .setScale(0.04, 0.25)
       .setDepth(6)
       .setVisible(telegraphMs > 0);
-    const beam = this.scene.add.rectangle(270, y, 540, 34, PALETTE.green, 0.88)
+    const beam = this.scene.add.rectangle(270, y, 540, 34, COMBAT_COLORS.danger, 0.88)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(34)
       .setVisible(telegraphMs <= 0);
