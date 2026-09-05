@@ -4,7 +4,7 @@ test('perspective collider activates at visible contact depth and sweeps its han
   test.skip(testInfo.project.name !== 'desktop-chromium', 'One deterministic live Phaser integration covers the projection handoff');
 
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
@@ -64,4 +64,42 @@ test('perspective collider activates at visible contact depth and sweeps its han
     undefined,
     { timeout: 1_500 },
   );
+});
+
+test('hostile papers rotate the completed perspective surface in either direction', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'One WebGL integration covers post-perspective roll');
+
+  await page.route('**/api/boss', (route) => route.abort('failed'));
+  await page.goto('/?debug=1&demo=off');
+  await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
+  await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
+  await page.waitForFunction(() => window.__NOXCAT_TEST__?.projectileSnapshot().some((item) => (
+    item.kind === 'paper'
+      && item.tunnelDepth > 0.2
+      && item.tunnelDepth < 0.65
+      && Math.abs(item.rotationSpeed) > 0.4
+  )), undefined, { timeout: 5_000 });
+
+  const initial = await page.evaluate(() => window.__NOXCAT_TEST__?.projectileSnapshot().find((item) => (
+    item.kind === 'paper'
+      && item.tunnelDepth > 0.2
+      && item.tunnelDepth < 0.65
+      && Math.abs(item.rotationSpeed) > 0.4
+  )));
+  if (!initial) throw new Error('No rotating perspective paper was available');
+
+  await page.waitForTimeout(180);
+  const later = await page.evaluate((rotationSpeed) => (
+    window.__NOXCAT_TEST__?.projectileSnapshot().find((item) => (
+      Math.abs(item.rotationSpeed - rotationSpeed) < 1e-9
+    ))
+  ), initial.rotationSpeed);
+  expect(later).toBeDefined();
+  const rollDelta = Math.atan2(
+    Math.sin((later?.rollRotation ?? 0) - initial.rollRotation),
+    Math.cos((later?.rollRotation ?? 0) - initial.rollRotation),
+  );
+  expect(Math.abs(rollDelta)).toBeGreaterThan(0.03);
+  expect(Math.sign(rollDelta)).toBe(Math.sign(initial.rotationSpeed));
 });

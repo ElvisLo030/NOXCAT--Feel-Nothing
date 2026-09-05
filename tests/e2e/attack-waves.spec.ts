@@ -17,7 +17,7 @@ test('comment crossfire visibly enters through a left or right wall portal', asy
       },
     }),
   }));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
@@ -51,7 +51,7 @@ test('comment crossfire visibly enters through a left or right wall portal', asy
 test('a wave progresses through a clear recovery before the next pattern', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop Chromium wave timing coverage');
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

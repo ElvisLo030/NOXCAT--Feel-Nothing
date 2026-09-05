@@ -34,6 +34,8 @@ export interface NoxcatProjectileSnapshot {
   readonly collisionActive: boolean;
   readonly vx: number;
   readonly vy: number;
+  readonly rotationSpeed: number;
+  readonly rollRotation: number;
   readonly continuingOffscreen: boolean;
 }
 
@@ -80,6 +82,7 @@ export interface NoxcatTestHook {
   spawnPerspectiveProbeForTest(hitPlayer: boolean): void;
   spawnExitProbesForTest(): void;
   pauseAttacksForVisualTest(): void;
+  advanceAttackForTest(): void;
   forceLowFpsForTest(): void;
   expireRoundForTest(): void;
   snapshot(): GameSessionSnapshot;

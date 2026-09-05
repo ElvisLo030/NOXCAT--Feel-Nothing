@@ -9,12 +9,6 @@ export interface ProjectileDepthPose {
   displayDepth: number;
 }
 
-export interface InboundProjectileTransform {
-  readonly scaleX: number;
-  readonly scaleY: number;
-  readonly rotation: 0;
-}
-
 export interface ProjectileDepthPoint {
   readonly x: number;
   readonly y: number;
@@ -25,6 +19,31 @@ export interface ProjectilePerspectiveQuad {
   readonly topRight: ProjectileDepthPoint;
   readonly bottomRight: ProjectileDepthPoint;
   readonly bottomLeft: ProjectileDepthPoint;
+}
+
+/**
+ * Reusable pinhole transform for one rigid projectile plane. Keeping this
+ * separate from the sampled UV point lets the subdivided runtime mesh project
+ * every vertex with one shared camera calculation and no per-frame garbage.
+ */
+export interface ProjectilePerspectiveProjection {
+  readonly halfWidth: number;
+  readonly halfHeight: number;
+  readonly cosineYaw: number;
+  readonly sineYaw: number;
+  readonly cosinePitch: number;
+  readonly sinePitch: number;
+  readonly focalLength: number;
+}
+
+export interface MutableProjectileDepthPoint {
+  x: number;
+  y: number;
+}
+
+export interface ProjectilePerspectiveGridData {
+  readonly vertices: number[];
+  readonly uvs: number[];
 }
 
 /** Shared vanishing point: the Boss' lower bezel and every floor ray meet here. */
@@ -260,44 +279,14 @@ export function sampleTunnelProjection(
 }
 
 /**
- * Keeps inbound documents front-facing while their silhouette communicates
- * acceleration. Values depend on px/s rather than per-frame displacement, so
- * 30/60/120 Hz produce the same shape for the same projected motion.
- */
-export function calculateInboundProjectileTransform(
-  depth: number,
-  projectedSpeedPerSecond: number,
-  authoredRotationSpeed = 0,
-): InboundProjectileTransform {
-  // Deliberately consume but ignore authored spin during the inbound phase.
-  void authoredRotationSpeed;
-  const progress = clamp(depth, 0, 1);
-  const speed01 = smoothstep(120, 920, Math.max(0, projectedSpeedPerSecond));
-  const accelerationEnvelope = Math.sin(
-    Math.PI * smoothstep(0.08, 1, progress),
-  );
-  const nearOvershoot = smoothstep(0.88, 1, progress);
-  const farFlatten = 1 - 0.1 * (1 - smoothstep(0, 0.2, progress));
-  const stretch = accelerationEnvelope * lerp(0.1, 0.3, speed01);
-
-  return {
-    scaleX: 1 - accelerationEnvelope * lerp(0.04, 0.14, speed01)
-      + nearOvershoot * 0.025 * speed01,
-    scaleY: farFlatten + stretch + nearOvershoot * 0.045 * speed01,
-    rotation: 0,
-  };
-}
-
-/**
  * Projects a card plane into a four-corner keystone. Each lane gets its own
  * yaw and pitch while roll stays zero. This is intentionally separate from
  * the depth scale: scaling alone preserves a perfect rectangle and reads as a
  * flat UI element growing on screen, while the pinhole projection makes the
  * left and right cards expose opposite faces.
  *
- * Returned points are screen-space offsets around a zero centroid. Keeping the
- * centroid fixed lets the visual quad share the projectile's existing logical
- * centre without changing collision or the far/near hand-off.
+ * Returned points are screen-space offsets around the projected texture
+ * centre, which stays on the gameplay ray through the far/near hand-off.
  */
 export function calculateProjectilePerspectiveQuad(
   projectedCenter: ProjectileDepthPoint,
@@ -307,6 +296,71 @@ export function calculateProjectilePerspectiveQuad(
   directionReference: ProjectileDepthPoint = projectedCenter,
   vanishingPoint: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
 ): ProjectilePerspectiveQuad {
+  const projection = createProjectilePerspectiveProjection(
+    projectedCenter,
+    displayWidth,
+    displayHeight,
+    depth,
+    directionReference,
+    vanishingPoint,
+  );
+  return {
+    topLeft: projectProjectilePerspectiveUv(projection, 0, 0),
+    topRight: projectProjectilePerspectiveUv(projection, 1, 0),
+    bottomRight: projectProjectilePerspectiveUv(projection, 1, 1),
+    bottomLeft: projectProjectilePerspectiveUv(projection, 0, 1),
+  };
+}
+
+/**
+ * Builds a regular triangle grid for Phaser's 2D Mesh pipeline. A single quad
+ * would interpolate UVs affinely inside two large triangles and visibly kink
+ * the document texture across their diagonal. Small cells approximate the
+ * pinhole mapping while keeping a deterministic, pooled topology.
+ */
+export function createProjectilePerspectiveGridData(
+  displayWidth: number,
+  displayHeight: number,
+  columns: number,
+  rows: number,
+): ProjectilePerspectiveGridData {
+  const columnCount = Math.max(1, Math.floor(columns));
+  const rowCount = Math.max(1, Math.floor(rows));
+  const width = Math.max(0, displayWidth);
+  const height = Math.max(0, displayHeight);
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  const addVertex = (u: number, v: number): void => {
+    vertices.push((u - 0.5) * width, (v - 0.5) * height);
+    uvs.push(u, v);
+  };
+  for (let row = 0; row < rowCount; row += 1) {
+    const top = row / rowCount;
+    const bottom = (row + 1) / rowCount;
+    for (let column = 0; column < columnCount; column += 1) {
+      const left = column / columnCount;
+      const right = (column + 1) / columnCount;
+      // Match Phaser's established winding for an orthographic textured quad.
+      addVertex(left, bottom);
+      addVertex(left, top);
+      addVertex(right, bottom);
+      addVertex(left, top);
+      addVertex(right, top);
+      addVertex(right, bottom);
+    }
+  }
+  return { vertices, uvs };
+}
+
+/** Builds the shared rigid-plane transform used by the quad and UV grid. */
+export function createProjectilePerspectiveProjection(
+  projectedCenter: ProjectileDepthPoint,
+  displayWidth: number,
+  displayHeight: number,
+  depth: number,
+  directionReference: ProjectileDepthPoint = projectedCenter,
+  vanishingPoint: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
+): ProjectilePerspectiveProjection {
   const halfWidth = Math.max(0, displayWidth) / 2;
   const halfHeight = Math.max(0, displayHeight) / 2;
   // Use the authored near point as the stable lane reference. This matters
@@ -341,8 +395,8 @@ export function calculateProjectilePerspectiveQuad(
 
   // This is a small, real 3D projection rather than a 2D scale/shear trick.
   // The card plane has yaw (from its left/right lane) and pitch (from its
-  // vertical lane), but deliberately no roll, so inbound documents never spin
-  // in screen space. Mirrored lanes therefore produce mirrored keystones.
+  // vertical lane), while screen-space roll is composed later by Projectile.
+  // Mirrored lanes therefore produce mirrored keystones before either signed roll.
   const orientationEnvelope = lerp(0.44, 1, smoothstep(0.04, 0.92, depth));
   const degreesToRadians = Math.PI / 180;
   // Screen-space lane direction and 3D plane yaw have opposite signs: a card
@@ -355,40 +409,69 @@ export function calculateProjectilePerspectiveQuad(
   const cosinePitch = Math.cos(pitch);
   const sinePitch = Math.sin(pitch);
   const focalLength = Math.max(1, Math.max(displayWidth, displayHeight) * 1.55);
-  const sourceCorners = [
-    { x: -halfWidth, y: -halfHeight },
-    { x: halfWidth, y: -halfHeight },
-    { x: halfWidth, y: halfHeight },
-    { x: -halfWidth, y: halfHeight },
-  ] as const;
-  const warped = sourceCorners.map((corner) => {
-    // Rotate the local plane around world Y (lane yaw), then world X (floor
-    // pitch). Positive local Z points toward the camera.
-    const yawedX = corner.x * cosineYaw;
-    const yawedZ = corner.x * sineYaw;
-    const pitchedY = corner.y * cosinePitch - yawedZ * sinePitch;
-    const pitchedZ = corner.y * sinePitch + yawedZ * cosinePitch;
-    const perspectiveDivisor = Math.max(0.52, 1 - pitchedZ / focalLength);
-    return {
-      x: yawedX / perspectiveDivisor,
-      y: pitchedY / perspectiveDivisor,
-    };
-  });
-  const centroid = warped.reduce(
-    (sum, corner) => ({ x: sum.x + corner.x / 4, y: sum.y + corner.y / 4 }),
-    { x: 0, y: 0 },
-  );
-  const centered = warped.map((corner) => ({
-    x: corner.x - centroid.x,
-    y: corner.y - centroid.y,
-  }));
-
   return {
-    topLeft: centered[0]!,
-    topRight: centered[1]!,
-    bottomRight: centered[2]!,
-    bottomLeft: centered[3]!,
+    halfWidth,
+    halfHeight,
+    cosineYaw,
+    sineYaw,
+    cosinePitch,
+    sinePitch,
+    focalLength,
   };
+}
+
+/**
+ * Projects one texture coordinate through the same 3D plane as every other
+ * point on the card. `target` is optional so runtime mesh updates can reuse a
+ * single object instead of allocating one point per vertex per frame.
+ *
+ * The local origin is the projection of UV (0.5, 0.5). We intentionally do
+ * not subtract the arithmetic mean of the four corners: under perspective the
+ * projected texture centre and a quad's corner average are different points.
+ */
+export function projectProjectilePerspectiveUv(
+  projection: ProjectilePerspectiveProjection,
+  u: number,
+  v: number,
+  target: MutableProjectileDepthPoint = { x: 0, y: 0 },
+): MutableProjectileDepthPoint {
+  const localX = (clamp(u, 0, 1) * 2 - 1) * projection.halfWidth;
+  const localY = (clamp(v, 0, 1) * 2 - 1) * projection.halfHeight;
+  // Rotate the local plane around world Y (lane yaw), then world X (floor
+  // pitch). Positive local Z points toward the camera.
+  const yawedX = localX * projection.cosineYaw;
+  const yawedZ = localX * projection.sineYaw;
+  const pitchedY = localY * projection.cosinePitch
+    - yawedZ * projection.sinePitch;
+  const pitchedZ = localY * projection.sinePitch
+    + yawedZ * projection.cosinePitch;
+  const perspectiveDivisor = Math.max(
+    0.52,
+    1 - pitchedZ / projection.focalLength,
+  );
+  target.x = yawedX / perspectiveDivisor;
+  target.y = pitchedY / perspectiveDivisor;
+  return target;
+}
+
+/**
+ * Applies screen-space roll after the paper has already been keystone-
+ * projected. This ordering is intentional: rolling the source rectangle
+ * before the yaw/pitch projection changes the trapezoid itself, while the
+ * desired paper motion rotates one rigid, perspective-correct surface.
+ */
+export function rotateProjectedSurfacePoint(
+  point: ProjectileDepthPoint,
+  rollRadians: number,
+  target: MutableProjectileDepthPoint = { x: 0, y: 0 },
+): MutableProjectileDepthPoint {
+  const cosine = Math.cos(rollRadians);
+  const sine = Math.sin(rollRadians);
+  const x = point.x;
+  const y = point.y;
+  target.x = x * cosine - y * sine;
+  target.y = x * sine + y * cosine;
+  return target;
 }
 
 /** Non-linear floor rows bunch at the horizon and spread toward the camera. */

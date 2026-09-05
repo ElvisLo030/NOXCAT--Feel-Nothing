@@ -29,7 +29,7 @@ test('round timeout shows the escaped result and both replay choices work', asyn
 });
 
 async function startBattle(page: Page): Promise<void> {
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

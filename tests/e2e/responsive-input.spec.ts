@@ -50,7 +50,7 @@ test('camera consent and result screens keep focus, statistics, and actions acce
       }),
     });
   });
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('generate-boss').click();
 
   const loadingTitle = page.getByRole('heading', { name: /AI 正在把煩惱.*編譯成 BOSS/ });
@@ -205,7 +205,7 @@ test('mobile battle fills the live visual viewport without letterbox bars or str
 test('mobile start and result screens fill and follow the live visual viewport', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'desktop-chromium', 'Mobile visual viewport coverage');
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
 
   const start = page.locator('.start-screen');
   await expect(start).toBeVisible();
@@ -254,7 +254,7 @@ test('installed PWA start and result screens use the standalone viewport path', 
     });
   });
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await expect(page.locator('html')).toHaveAttribute('data-display-mode', 'standalone');
 
   const start = page.locator('.start-screen');
@@ -332,7 +332,7 @@ test('releasing outside the canvas ends the active desktop drag', async ({ page 
 });
 
 async function startBattle(page: Page): Promise<void> {
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();

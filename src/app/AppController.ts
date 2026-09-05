@@ -6,6 +6,10 @@ import {
   type FaceScoreUpdate,
 } from '../face/FaceController';
 import { createGameConfig } from '../game/config';
+import {
+  createAllAttackDemoSequence,
+  shouldUseAllAttackDemo,
+} from '../game/demoBattle';
 import { setBattleRuntime } from '../game/runtime';
 import type { BattleResultDetail } from '../game/scenes/BattleScene';
 import { AudioSystem } from '../game/systems/AudioSystem';
@@ -336,8 +340,17 @@ export class AppController {
       </main>
       <div class="landscape-warning" role="status"><strong>請轉回直式</strong><span>果凍砲彈需要垂直戰場</span></div>
     `;
+    const requestedDemo = new URLSearchParams(window.location.search).get('demo');
+    const attackSequence = shouldUseAllAttackDemo(
+      result.source,
+      import.meta.env.DEV,
+      requestedDemo,
+    )
+      ? createAllAttackDemoSequence()
+      : result.boss.attacks;
     setBattleRuntime({
       boss: result.boss,
+      attackSequence,
       source: result.source,
       annoyance: this.latestAnnoyance,
       soundEnabled: this.soundEnabled,

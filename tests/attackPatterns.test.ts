@@ -690,6 +690,9 @@ describe('AttackDirector wave pacing', () => {
       closing_walls: 500,
       revision_homing: 440,
       returnable_burst: 380,
+      top_downpour: 400,
+      pulse_barrage: 460,
+      alternating_zipper: 420,
     });
     expect(Math.max(...Object.values(ATTACK_RECOVERY_MS))).toBeLessThanOrEqual(500);
   });

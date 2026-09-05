@@ -21,6 +21,8 @@ export interface SafeLaneHint {
   axis: 'vertical' | 'horizontal';
   center: number;
   halfWidth: number;
+  /** Top-origin attacks use a screen-aligned corridor instead of the floor vanishing point. */
+  projection?: 'perspective' | 'screen';
 }
 
 export interface DangerRectHint {
@@ -29,6 +31,7 @@ export interface DangerRectHint {
   y: number;
   width: number;
   height: number;
+  projection?: 'perspective' | 'screen';
 }
 
 export interface DangerTargetHint {
@@ -76,6 +79,9 @@ function clamp(value: number, min: number, max: number): number {
 export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[] {
   const right = COMBAT_ARENA.x + COMBAT_ARENA.width;
   const bottom = COMBAT_ARENA.y + COMBAT_ARENA.height;
+  const projection = hint.projection === 'screen'
+    ? { projection: 'screen' as const }
+    : {};
 
   if (hint.axis === 'vertical') {
     const safeLeft = clamp(hint.center - hint.halfWidth, COMBAT_ARENA.x, right);
@@ -87,6 +93,7 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
         y: COMBAT_ARENA.y,
         width: Math.max(0, safeLeft - COMBAT_ARENA.x),
         height: COMBAT_ARENA.height,
+        ...projection,
       },
       {
         kind: 'rect',
@@ -94,6 +101,7 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
         y: COMBAT_ARENA.y,
         width: Math.max(0, right - safeRight),
         height: COMBAT_ARENA.height,
+        ...projection,
       },
     ];
     return zones.filter((rect) => rect.width > 0);
@@ -108,6 +116,7 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
       y: COMBAT_ARENA.y,
       width: COMBAT_ARENA.width,
       height: Math.max(0, safeTop - COMBAT_ARENA.y),
+      ...projection,
     },
     {
       kind: 'rect',
@@ -115,6 +124,7 @@ export function dangerRectsOutsideSafeLane(hint: SafeLaneHint): DangerRectHint[]
       y: safeBottom,
       width: COMBAT_ARENA.width,
       height: Math.max(0, bottom - safeBottom),
+      ...projection,
     },
   ];
   return zones.filter((rect) => rect.height > 0);

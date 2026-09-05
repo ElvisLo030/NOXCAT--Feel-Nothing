@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BOSS_PROJECTILE_ORIGIN,
-  calculateInboundProjectileTransform,
   calculateProjectilePerspectiveQuad,
   calculateTunnelDepthPose,
+  createProjectilePerspectiveGridData,
+  createProjectilePerspectiveProjection,
   createTunnelTrajectory,
   floorGridY,
+  projectProjectilePerspectiveUv,
   projectTunnelLane,
   PROJECTILE_CONTACT_DEPTH,
   radialNearPlaneVelocity,
@@ -196,27 +198,74 @@ describe('shared projectile perspective depth', () => {
     expect(calculateTunnelDepthPose('homing', 1).scale).toBeCloseTo(1.65);
   });
 
-  it('deforms inbound documents continuously without honoring authored spin', () => {
-    const slow = calculateInboundProjectileTransform(0.55, 180, -9);
-    const fast = calculateInboundProjectileTransform(0.55, 900, 9);
-    const near = calculateInboundProjectileTransform(1, 900, 9);
+  it('builds a pooled 4x6 surface grid instead of one affine quad', () => {
+    const grid = createProjectilePerspectiveGridData(40, 52, 4, 6);
+    const vertexCount = 4 * 6 * 2 * 3;
+    const projection = createProjectilePerspectiveProjection(
+      { x: 175, y: 590 },
+      96,
+      124,
+      0.86,
+      { x: 100, y: 760 },
+    );
 
-    expect(slow.rotation).toBe(0);
-    expect(fast.rotation).toBe(0);
-    expect(fast.scaleX).toBeLessThan(slow.scaleX);
-    expect(fast.scaleY).toBeGreaterThan(slow.scaleY);
-    expect(fast.scaleX).toBeLessThan(1);
-    expect(fast.scaleY).toBeGreaterThan(1.1);
-    expect(near.scaleX).toBeGreaterThan(fast.scaleX);
-    expect(near.scaleY).toBeLessThan(fast.scaleY);
+    expect(grid.vertices).toHaveLength(vertexCount * 2);
+    expect(grid.uvs).toHaveLength(vertexCount * 2);
+    expect(grid.uvs.slice(0, 6)).toEqual([0, 1 / 6, 0, 0, 1 / 4, 1 / 6]);
+    expect(Math.min(...grid.uvs)).toBe(0);
+    expect(Math.max(...grid.uvs)).toBe(1);
+    for (let index = 0; index < grid.uvs.length; index += 6) {
+      const first = projectProjectilePerspectiveUv(
+        projection,
+        grid.uvs[index]!,
+        grid.uvs[index + 1]!,
+      );
+      const second = projectProjectilePerspectiveUv(
+        projection,
+        grid.uvs[index + 2]!,
+        grid.uvs[index + 3]!,
+      );
+      const third = projectProjectilePerspectiveUv(
+        projection,
+        grid.uvs[index + 4]!,
+        grid.uvs[index + 5]!,
+      );
+      const signedArea = (second.x - first.x) * (third.y - first.y)
+        - (second.y - first.y) * (third.x - first.x);
+      expect(signedArea).toBeGreaterThan(0.0001);
+    }
+  });
 
-    const samples = Array.from({ length: 101 }, (_, index) => (
-      calculateInboundProjectileTransform(index / 100, 900, 12)
-    ));
-    for (let index = 1; index < samples.length; index += 1) {
-      expect(Math.abs(samples[index]!.scaleX - samples[index - 1]!.scaleX)).toBeLessThan(0.02);
-      expect(Math.abs(samples[index]!.scaleY - samples[index - 1]!.scaleY)).toBeLessThan(0.03);
-      expect(samples[index]!.rotation).toBe(0);
+  it('projects the texture centre onto the collider and keeps UV rows straight', () => {
+    const projection = createProjectilePerspectiveProjection(
+      { x: 175, y: 590 },
+      96,
+      124,
+      0.86,
+      { x: 100, y: 760 },
+    );
+    const centre = projectProjectilePerspectiveUv(projection, 0.5, 0.5);
+    const lineDistance = (
+      point: Readonly<{ x: number; y: number }>,
+      start: Readonly<{ x: number; y: number }>,
+      end: Readonly<{ x: number; y: number }>,
+    ): number => Math.abs(
+      (end.x - start.x) * (start.y - point.y)
+        - (start.x - point.x) * (end.y - start.y),
+    ) / Math.max(1e-9, Math.hypot(end.x - start.x, end.y - start.y));
+
+    expect(centre.x).toBeCloseTo(0, 10);
+    expect(centre.y).toBeCloseTo(0, 10);
+    for (const u of [0.25, 0.5, 0.75]) {
+      const start = projectProjectilePerspectiveUv(projection, u, 0);
+      const end = projectProjectilePerspectiveUv(projection, u, 1);
+      for (const v of [0.25, 0.5, 0.75]) {
+        expect(lineDistance(
+          projectProjectilePerspectiveUv(projection, u, v),
+          start,
+          end,
+        )).toBeLessThan(0.000001);
+      }
     }
   });
 
@@ -246,21 +295,23 @@ describe('shared projectile perspective depth', () => {
     expect(nearTop).toBeLessThan(nearBottom);
     expect(nearTop / nearBottom).toBeLessThan(farTop / farBottom);
     // A straight-down shot stays upright: it is a trapezoid, not a rotated
-    // sprite, and its visual centre remains on the collider.
+    // sprite. Perspective correctly shifts the arithmetic corner average;
+    // the projected texture centre itself remains on the collider.
     expect(near.topLeft.y).toBeCloseTo(near.topRight.y, 10);
     expect(near.bottomLeft.y).toBeCloseTo(near.bottomRight.y, 10);
+    const projection = createProjectilePerspectiveProjection(
+      { x: 270, y: 700 },
+      96,
+      124,
+      1,
+    );
+    expect(projectProjectilePerspectiveUv(projection, 0.5, 0.5)).toEqual({ x: 0, y: 0 });
     expect([
       near.topLeft,
       near.topRight,
       near.bottomRight,
       near.bottomLeft,
-    ].reduce((sum, corner) => sum + corner.x, 0)).toBeCloseTo(0, 10);
-    expect([
-      near.topLeft,
-      near.topRight,
-      near.bottomRight,
-      near.bottomLeft,
-    ].reduce((sum, corner) => sum + corner.y, 0)).toBeCloseTo(0, 10);
+    ].reduce((sum, corner) => sum + corner.y, 0)).not.toBeCloseTo(0, 2);
   });
 
   it('uses the authored Boss ray when the card is still on the vanishing point', () => {

@@ -7,6 +7,9 @@ export const PatternIdSchema = z.enum([
   'closing_walls',
   'revision_homing',
   'returnable_burst',
+  'top_downpour',
+  'pulse_barrage',
+  'alternating_zipper',
 ]);
 
 export const AttackStepSchema = z

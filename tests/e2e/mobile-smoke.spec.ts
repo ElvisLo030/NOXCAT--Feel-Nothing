@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 test('an API failure falls back locally and three real pull-release launches win', async ({ page, browserName }) => {
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
@@ -43,7 +43,7 @@ test('an API failure falls back locally and three real pull-release launches win
 
 test('client-side API failure still starts a playable local boss', async ({ page }) => {
   await page.route('**/api/boss', (route) => route.abort('failed'));
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 5_000 });
@@ -54,7 +54,7 @@ test('client-side API failure still starts a playable local boss', async ({ page
 
 test('goggles default on and the start-screen opt-out reaches the render layer', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', '390x844 accessory and layout coverage');
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
 
   const gogglesToggle = page.getByTestId('goggles-enabled');
   await expect(gogglesToggle).toBeChecked();
@@ -75,7 +75,7 @@ test('goggles default on and the start-screen opt-out reaches the render layer',
     () => page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot().goggleVisible),
   ).toBe(true);
 
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   const optOut = page.getByTestId('goggles-enabled');
   await optOut.uncheck({ force: true });
   await expect(page.locator('.css-goggles')).toBeHidden();
@@ -93,7 +93,7 @@ test('goggles default on and the start-screen opt-out reaches the render layer',
 
 test('desktop layout accepts keyboard movement without horizontal overflow', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop keyboard coverage');
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
@@ -118,7 +118,7 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
 
 test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps a fixed hit body', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Chromium provides deterministic mouse-drag timing for visual sampling');
-  await page.goto('/?debug=1');
+  await page.goto('/?debug=1&demo=off');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('skip-camera').click();
