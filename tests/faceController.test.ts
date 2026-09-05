@@ -377,7 +377,8 @@ describe('FaceController camera lifecycle', () => {
       browUp: 0.1,
       eyeWide: 0.1,
     };
-    installBrowser(vi.fn(async () => stream), video);
+    const getUserMedia = vi.fn(async () => stream);
+    installBrowser(getUserMedia, video);
     vi.stubGlobal('Worker', undefined);
     vi.stubGlobal('createImageBitmap', undefined);
     mediaPipe.detectForVideo.mockReturnValue(faceResult(neutralSample));
@@ -393,6 +394,7 @@ describe('FaceController camera lifecycle', () => {
     await expect(calibration).resolves.toMatchObject({ ok: true });
     expect(scores.some((score) => score.bonusEligible)).toBe(true);
 
+    getUserMedia.mockRejectedValue(new Error('reconnect failed'));
     endTrack();
     await vi.advanceTimersByTimeAsync(0);
 
@@ -405,13 +407,20 @@ describe('FaceController camera lifecycle', () => {
       mode: 'main-thread',
     });
     expect(statuses.at(-1)).toEqual({
+      status: 'face-lost',
+      mode: 'main-thread',
+      reason: 'camera-failed',
+    });
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(statuses.at(-1)).toEqual({
       status: 'unavailable',
       mode: null,
       reason: 'camera-failed',
     });
-    expect(track.stop).toHaveBeenCalledOnce();
+    expect(track.stop).toHaveBeenCalled();
     expect(mediaPipe.close).toHaveBeenCalledOnce();
-    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('invalidates bonus eligibility when a worker frame becomes stale', async () => {
