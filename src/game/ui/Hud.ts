@@ -35,6 +35,7 @@ export class Hud {
   private boostReduced = false;
   private lastDrawnIntensity = -1;
   private lastFullState = false;
+  private lastBoostTarget = false;
 
   constructor(scene: Phaser.Scene, bossName: string) {
     this.hearts = scene.add.text(25, 24, '♥ ♥ ♥', {
@@ -148,18 +149,20 @@ export class Hud {
     const energyPixels = Math.round(energyRatio * 302);
     const intensityQuant = Math.round(this.boostIntensity * 20);
     const isFull = energyRatio >= 0.999;
-    const needsBarRedraw = isFull || energyPixels !== this.lastEnergyPixels || intensityQuant !== this.lastDrawnIntensity || isFull !== this.lastFullState;
+    const isBoosting = this.boostTarget && !isFull;
+    const needsBarRedraw = isFull || isBoosting !== this.lastBoostTarget || energyPixels !== this.lastEnergyPixels || intensityQuant !== this.lastDrawnIntensity || isFull !== this.lastFullState;
     if (needsBarRedraw) {
       this.energyRatio = energyRatio;
       this.lastEnergyPixels = energyPixels;
       this.lastDrawnIntensity = intensityQuant;
       this.lastFullState = isFull;
+      this.lastBoostTarget = isBoosting;
       this.drawEnergyBar(energyRatio);
     }
     if (isFull) {
       this.drawFullGlow(energyRatio);
       this.drawFullFx(energyRatio);
-    } else if (this.boostIntensity > 0.015) {
+    } else if (isBoosting) {
       this.drawBoostGlow(energyRatio);
       this.drawBoostFx(energyRatio);
     } else {
@@ -179,10 +182,11 @@ export class Hud {
     this.boostIntensity += (target - this.boostIntensity) * lerp;
     this.boostIntensity = Math.max(0, Math.min(1, this.boostIntensity));
     const isFull = this.energyRatio >= 0.999;
+    const isBoosting = this.boostTarget && !isFull;
     if (isFull) {
       this.drawFullGlow(this.energyRatio);
       this.drawFullFx(this.energyRatio);
-    } else if (this.boostIntensity > 0.015) {
+    } else if (isBoosting) {
       this.drawBoostGlow(this.energyRatio);
       this.drawBoostFx(this.energyRatio);
     } else {
@@ -192,9 +196,10 @@ export class Hud {
     this.updateBoostLabels();
     this.updateFullLabel(isFull);
     const intensityQuant = Math.round(this.boostIntensity * 20);
-    if (isFull || intensityQuant !== this.lastDrawnIntensity) {
+    if (isFull || isBoosting !== this.lastBoostTarget || intensityQuant !== this.lastDrawnIntensity) {
       this.lastDrawnIntensity = intensityQuant;
       this.lastFullState = isFull;
+      this.lastBoostTarget = isBoosting;
       this.drawEnergyBar(this.energyRatio);
     }
   }
@@ -220,12 +225,16 @@ export class Hud {
     this.drawBossBar(this.bossRatio);
     this.drawEnergyBar(this.energyRatio);
     const isFull = this.energyRatio >= 0.999;
+    const isBoosting = this.boostTarget && !isFull;
     if (isFull) {
       this.drawFullGlow(this.energyRatio);
       this.drawFullFx(this.energyRatio);
-    } else if (this.boostIntensity > 0.015) {
+    } else if (isBoosting) {
       this.drawBoostGlow(this.energyRatio);
       this.drawBoostFx(this.energyRatio);
+    } else {
+      this.energyBoostGlow.clear();
+      this.energyBoostFx.clear();
     }
     this.updateFullLabel(isFull);
   }
@@ -275,15 +284,17 @@ export class Hud {
     const isFull = ratio >= 0.999;
     this.energyBar.clear();
     this.energyBar.fillStyle(0x0a0c0a, 0.95).fillRoundedRect(x, y, width, 31, 16);
+    const isBoosting = this.boostTarget && !isFull;
     if (isFull) {
       const pulse = 0.88 + 0.12 * Math.sin(this.boostTime * 0.011);
       const borderAlpha = 0.95 * pulse;
       this.energyBar.lineStyle(2.5, PALETTE.green, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
+    } else if (isBoosting) {
+      const borderColor = intensity > 0.5 ? BOOST_PALETTE.cyan : BOOST_PALETTE.blue;
+      const borderAlpha = 0.85 + 0.15 * intensity;
+      this.energyBar.lineStyle(2.5, borderColor, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
     } else {
-      const borderColor = intensity > 0.5 ? BOOST_PALETTE.cyan : intensity > 0.12 ? BOOST_PALETTE.blue : PALETTE.green;
-      const borderAlpha = intensity > 0.01 ? 0.85 + 0.15 * intensity : 1;
-      const borderWidth = intensity > 0.35 ? 2.5 : 2;
-      this.energyBar.lineStyle(borderWidth, borderColor, borderAlpha).strokeRoundedRect(x, y, width, 31, 16);
+      this.energyBar.lineStyle(2, PALETTE.green, 1).strokeRoundedRect(x, y, width, 31, 16);
     }
     if (ratio > 0) {
       const fillW = Math.max(8, (width - 12) * ratio);
@@ -301,22 +312,22 @@ export class Hud {
         const shimmer2Offset = (this.boostTime * 0.18 + 260) % (fillW + shimmer2W + 80) - shimmer2W;
         const sx2 = x + 6 + shimmer2Offset;
         this.energyBar.fillStyle(0xffffff, 0.11).fillRoundedRect(sx2, y + 6, shimmer2W, 19, 10);
-      } else if (intensity > 0.015) {
+      } else if (isBoosting) {
         const glowAlpha = 0.95;
         this.energyBar.fillStyle(BOOST_PALETTE.blue, glowAlpha).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
         const highlightH = 9;
-        const highlightAlpha = 0.92 * intensity + 0.08;
+        const highlightAlpha = 0.92 * Math.max(0.55, intensity) + 0.08;
         this.energyBar.fillStyle(BOOST_PALETTE.cyan, highlightAlpha).fillRoundedRect(x + 6, y + 7, fillW, highlightH, 5);
-        this.energyBar.fillStyle(BOOST_PALETTE.spark, 0.78 * intensity).fillRoundedRect(x + 6, y + 7, fillW, 2.5, 1.5);
+        this.energyBar.fillStyle(BOOST_PALETTE.spark, 0.78 * Math.max(0.55, intensity)).fillRoundedRect(x + 6, y + 7, fillW, 2.5, 1.5);
         const shimmerW = Math.max(18, Math.min(fillW * 0.34, 86));
         const shimmerOffset = (this.boostTime * 0.16) % (fillW + shimmerW + 40) - shimmerW;
         const sx = x + 6 + shimmerOffset;
-        this.energyBar.fillStyle(0xffffff, 0.16 * intensity).fillRoundedRect(sx, y + 6, shimmerW, 19, 10);
+        this.energyBar.fillStyle(0xffffff, 0.16 * Math.max(0.6, intensity)).fillRoundedRect(sx, y + 6, shimmerW, 19, 10);
       } else {
         this.energyBar.fillStyle(PALETTE.green, 1).fillRoundedRect(x + 6, y + 6, fillW, 19, 10);
       }
     }
-    const isBoostLabel = !isFull && intensity > 0.22;
+    const isBoostLabel = isBoosting;
     if (isFull) {
       this.energyLabel.setColor(PALETTE_CSS.white).setScale(1);
     } else if (isBoostLabel) {
@@ -324,7 +335,7 @@ export class Hud {
       const pulse = 1 + 0.035 * Math.sin(this.boostTime * 0.012);
       this.energyLabel.setScale(pulse);
     } else {
-      this.energyLabel.setColor(ratio >= 1 ? PALETTE_CSS.white : PALETTE_CSS.green).setScale(1);
+      this.energyLabel.setColor(PALETTE_CSS.green).setScale(1);
     }
   }
 
@@ -527,24 +538,27 @@ export class Hud {
   private updateBoostLabels(): void {
     const intensity = this.boostIntensity;
     const isFull = this.energyRatio >= 0.999;
-    if (isFull) {
-      this.energyBoostTag.setAlpha(0);
-    } else if (intensity > 0.04) {
-      const tagAlpha = Math.min(1, (intensity - 0.04) / 0.36);
+    const isBoosting = this.boostTarget && !isFull;
+    if (isBoosting) {
       const tagPulse = 0.88 + 0.12 * Math.sin(this.boostTime * 0.009);
-      this.energyBoostTag.setAlpha(tagAlpha * tagPulse);
+      this.energyBoostTag.setAlpha(tagPulse);
       this.energyBoostTag.setScale(1 + 0.04 * Math.sin(this.boostTime * 0.011));
       this.energyBoostTag.setColor(BOOST_PALETTE_CSS.cyan);
       const flicker = Math.sin(this.boostTime * 0.04) > 0.82 && intensity > 0.6;
       if (flicker) this.energyBoostTag.setColor(BOOST_PALETTE_CSS.spark);
     } else {
-      this.energyBoostTag.setAlpha(0);
+      const fade = Math.max(0, (intensity - 0.02) / 0.18);
+      if (fade > 0.01 && !isFull && intensity > 0.04) {
+        this.energyBoostTag.setAlpha(fade * 0.6);
+      } else {
+        this.energyBoostTag.setAlpha(0);
+      }
     }
     if (isFull) {
       this.neutralLabel.setColor(PALETTE_CSS.green).setScale(1);
       return;
     }
-    if (intensity > 0.28) {
+    if (isBoosting) {
       const neutralPulse = 1 + 0.045 * Math.sin(this.boostTime * 0.013);
       this.neutralLabel.setScale(neutralPulse);
       this.neutralLabel.setColor(BOOST_PALETTE_CSS.cyan);
@@ -552,17 +566,19 @@ export class Hud {
         const spark = -0.3 + 0.6 * Math.sin(this.boostTime * 0.028);
         if (spark > 0.35) this.neutralLabel.setColor(BOOST_PALETTE_CSS.spark);
       }
-    } else if (intensity > 0.01) {
-      const t = intensity / 0.28;
-      const r = Math.round(0x91 + (0x3b - 0x91) * t);
-      const g = Math.round(0xd5 + (0xa8 - 0xd5) * t);
-      const b = Math.round(0x00 + (0xff - 0x00) * t);
-      const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-      this.neutralLabel.setColor(hex);
-      this.neutralLabel.setScale(1);
     } else {
-      this.neutralLabel.setColor(PALETTE_CSS.green);
-      this.neutralLabel.setScale(1);
+      if (intensity > 0.04) {
+        const fade = intensity / 0.28;
+        const t = Math.min(1, fade * 0.35);
+        const r = Math.round(0x91 + (0x3b - 0x91) * t);
+        const g = Math.round(0xd5 + (0xa8 - 0xd5) * t);
+        const b = Math.round(0x00 + (0xff - 0x00) * t);
+        const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+        this.neutralLabel.setColor(hex);
+        this.neutralLabel.setScale(1 + 0.02 * fade);
+      } else {
+        this.neutralLabel.setColor(PALETTE_CSS.green).setScale(1);
+      }
     }
   }
 
