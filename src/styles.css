@@ -213,7 +213,7 @@ h1 span { color: var(--lime); }
   aspect-ratio:1;
   display:grid;
   place-items:center;
-  margin:clamp(20px,4.2vh,34px) 0 16px;
+  margin:clamp(20px,4.2vh,34px) 0 0;
   filter:drop-shadow(0 0 9px rgba(145,213,0,.42)) drop-shadow(0 0 28px rgba(145,213,0,.18));
 }
 .compile-ring {
@@ -320,7 +320,7 @@ h1 span { color: var(--lime); }
 @keyframes compile-scan{to{transform:rotate(1turn)}}
 @keyframes compile-radar{0%,100%{transform:rotate(-18deg);opacity:.25}50%{transform:rotate(198deg);opacity:.8}}
 @keyframes compile-flicker{0%,86%,100%{opacity:1}88%,94%{opacity:.38}}
-.compile-count{margin:0;color:var(--lime);font:800 12px/1.4 monospace;letter-spacing:.08em;text-shadow:0 0 10px rgba(145,213,0,.6)}.camera-copy{max-width:360px;color:var(--muted);font-size:13px;line-height:1.6}.camera-copy strong{color:var(--lime)}
+.camera-copy{max-width:360px;color:var(--muted);font-size:13px;line-height:1.6}.camera-copy strong{color:var(--lime)}
 .camera-glyph{width:142px;height:104px;margin:28px 0 12px;border:5px solid #4b5841;border-radius:26px;background:#060a06;display:grid;place-items:center;box-shadow:0 0 40px rgba(145,213,0,.1)}.camera-glyph span{color:var(--lime);font-size:34px;letter-spacing:.3em;text-shadow:0 0 11px var(--lime)}
 .camera-actions,.result-actions{display:grid;gap:10px;width:min(100%,340px);margin-top:20px}.status-message{min-height:24px;color:var(--danger);font-size:12px}
 .continue-standard{width:min(100%,340px);margin-top:12px}
@@ -375,8 +375,7 @@ h1 span { color: var(--lime); }
   .input-shell input{min-height:46px}
   .primary-button{min-height:46px}
   .camera-glyph{width:112px;height:82px;margin:12px 0 8px;border-width:4px}
-  .compile-ring-shell{width:138px;margin:15px 0 10px}
-  .compile-ring-shell + .compile-count{font-size:10px}
+  .compile-ring-shell{width:138px;margin:15px 0 0}
   .camera-actions,.result-actions{gap:6px;margin-top:10px}
   .grade{width:86px;height:86px;font-size:52px}
   .result-screen h2{margin:5px 0;font-size:26px}
