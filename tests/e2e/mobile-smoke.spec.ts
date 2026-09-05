@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { PLAYER_MIN_Y } from '../../src/game/constants';
+import { noxcatPerspectiveScale } from '../../src/game/systems/JellyMotionSystem';
 
 test('an API failure falls back locally and three real pull-release launches win', async ({ page, browserName }) => {
   await page.route('**/api/boss', (route) => route.abort('failed'));
@@ -203,7 +204,7 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   await page.mouse.up();
   expect(upper?.y).toBeCloseTo(PLAYER_MIN_Y, 0);
-  expect(upper?.depthScale ?? 0).toBeGreaterThan(0.98);
+  expect(upper?.depthScale ?? 0).toBeCloseTo(noxcatPerspectiveScale(PLAYER_MIN_Y), 1);
   // Perspective changes only the image; the logical gameplay body stays fixed.
   expect(upper?.hitRadius).toBe(18);
 });

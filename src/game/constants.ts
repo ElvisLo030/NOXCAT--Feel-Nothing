@@ -1,8 +1,8 @@
 export const GAME_WIDTH = 540;
 export const GAME_HEIGHT = 960;
 
-// 紅框上緣保留角色半高；一般移動限於近景，彈射沿用完整戰場邊界。
-export const DODGE_AREA_TOP = 675;
+// 移動區上緣保留角色半高；一般移動限於近景，彈射沿用完整戰場邊界。
+export const DODGE_AREA_TOP = 615;
 export const PLAYER_MIN_X = 46;
 export const PLAYER_MAX_X = GAME_WIDTH - 46;
 export const PLAYER_MIN_Y = DODGE_AREA_TOP + 60;

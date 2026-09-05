@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { PALETTE, PALETTE_CSS } from '../../theme/palette';
 import { GameSession, type GameSessionSnapshot } from '../../state/GameSession';
 import { SeededRng } from '../../utils/rng';
+import { createAttackPool } from '../attackSequence';
 import {
   AIM_MAX_PULL,
   AIM_MIN_PULL,
@@ -159,8 +160,12 @@ export class BattleScene extends Phaser.Scene {
     this.audio = new AudioSystem();
     this.audio.setEnabled(runtime.soundEnabled);
     this.setupBossChatter();
+    const fixedSequence = import.meta.env.DEV ? runtime.attackSequence : undefined;
     this.director = new AttackDirector(
-      { attacks: runtime.attackSequence ?? runtime.boss.attacks },
+      {
+        attacks: fixedSequence ?? createAttackPool(runtime.boss.attacks),
+        shuffleSeed: fixedSequence ? undefined : runtime.boss.seed,
+      },
       new SeededRng(runtime.boss.seed),
       this.projectiles,
       {

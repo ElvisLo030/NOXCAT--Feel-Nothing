@@ -93,7 +93,7 @@ OPENAI_TIMEOUT_MS=5500
 - 能量滿後，按住 NOXCAT、向想發射方向的反方向拉、放開。
 - 三次主要撞擊（每次 34 傷害）即可勝利；時間到或生命歸零則失敗。
 
-招式包含 `paper_rain`、`comment_crossfire`、`deadline_beam`、`closing_walls`、`revision_homing`、`returnable_burst`、`top_downpour`、`pulse_barrage`、`alternating_zipper`。其中 `top_downpour` 使用畫面正上方的獨立垂直透視射線，`pulse_barrage` 以齊射與停頓形成節奏，`alternating_zipper` 則左右交替加速；三者皆保留可預讀的安全通道。正式 AI／fallback `BossDNA` 仍嚴格限制為三段招式；localhost 開發時的 fallback 展示關卡則使用獨立的九招序列，會在循環前依序演出全部效果。需要用 AI 文案強制預覽九招時可開啟 `?demo=all`，需要驗證原始三招流程時使用 `?demo=off`。戰鬥布局不使用 `Math.random()`。
+招式包含 `paper_rain`、`comment_crossfire`、`deadline_beam`、`closing_walls`、`revision_homing`、`returnable_burst`、`top_downpour`、`pulse_barrage`、`alternating_zipper`。其中 `top_downpour` 使用畫面正上方的獨立垂直透視射線，`pulse_barrage` 以齊射與停頓形成節奏，`alternating_zipper` 則左右交替加速；三者皆保留可預讀的安全通道。開發版與正式版預設共用完整九招池，AI 成功或離線 fallback 都以 BossDNA seed 洗牌，每輪九招各出現一次，下一輪重新洗牌且不與上一輪最後一招重複。選招與彈幕布局使用獨立 RNG，因此同一 BossDNA 重玩會重現選招順序，玩家移動不會改變下一輪的招式順序。API 的 BossDNA 仍維持三段設定，遊戲保留這三招各自的強度與時間，其餘招式使用既有平衡預設；重複指定同一招時採第一筆。`?demo=all` 已無須使用；`?demo=off` 僅在開發版保留原始三段固定序列，供單招診斷與既有測試使用，正式版忽略此參數。戰鬥布局與選招都不使用 `Math.random()`。
 
 AI BossDNA 另外包含 12 句針對玩家煩惱生成且互不重複的戰鬥碎念。生成分成兩個連續 API 呼叫，每批 6 句；loading 畫面會依實際批次完成狀態顯示 0%、50%、100%。戰鬥中約每 2.4 秒顯示一句，受傷、反彈、弱點開啟與主要撞擊時也會觸發。
 
@@ -140,9 +140,10 @@ npm start
 
 其他指令：
 
-- `npm run test`：177 項 unit tests（schema、API 限制／fallback、RNG、Neutral、相機 lifecycle、combat、實際輪廓／近景交接／掃掠碰撞、可取消 pattern timeline、反彈獨立窗口、危險區／安全路徑與波次、九招展示序列、左右超掃覆蓋、正上方雨勢、齊射停頓、左右加速、側牆入口、細分 UV pinhole Mesh／3D 消失點投影、梯形後旋轉與碰撞同步、連續加速離場與個別回收、不同螢幕比例的等比相機與觸控座標換算、持續低 FPS 視覺降級、果凍彈簧跨 30／60／120 FPS 與回彈衰減、NOXCAT 視覺資產、首頁灰階 Boss、生成式文件與透明 PNG／載入失敗 fallback 完整性）。
-- `npm run test:e2e`：共 93 組跨專案案例，依桌面／行動瀏覽器能力條件執行或略過。桌面 Chromium、390×844 Android Chrome profile 與 iPhone WebKit profile 都會在 API 失敗後，經 canvas 真實執行三次拉弓／放手／物理命中並完成 fallback 勝利；手機 profile 另驗證首頁、戰鬥與結束頁在 390×844／390×600 完整貼齊 live viewport、相機 X/Y zoom 相同、worldView 延伸正確，以及 resize 後沒有水平或垂直溢出；獨立案例會強制走 installed-PWA standalone fallback。測試也會透過 development-only hook 推進同一個 round-expiry 路徑，驗證 180 秒 `BOSS ESCAPED` 結算與兩條重玩流程；最後一擊另驗證九層 Boss 塌落演出確實先於結果頁。其餘涵蓋九招開發展示順序、左右牆口實際進場、真實高速拖曳反彈、敵方紙張完成透視後的 seeded 雙向旋轉、遠景無碰撞、近景可見中心／碰撞中心一致、低 FPS handoff swept collision、兩張探針 `2 → 1 → 0` 個別加速離場、提早結束空白 ACTIVE、縮短 recovery、200ms 快速拖放、攻擊 `TELEGRAPH → ACTIVE → RECOVERY`、合成相機校正／Neutral 加成／抑制／無臉／完整清理、低 FPS 降級與真實 rAF cadence、暫停 Clock、鍵盤／讀屏語意、44px 觸控目標、橫向暫停與無版面溢出。
+- `npm run test`：198 項 unit tests（schema、API 限制／fallback、RNG、Neutral、相機 lifecycle、combat、實際輪廓／近景交接／掃掠碰撞、可取消 pattern timeline、反彈獨立窗口、危險區／安全路徑與波次、九招洗牌與跨輪不重複、左右超掃覆蓋、正上方雨勢、齊射停頓、左右加速、側牆入口、細分 UV pinhole Mesh／3D 消失點投影、梯形後旋轉與碰撞同步、連續加速離場與個別回收、不同螢幕比例的等比相機與觸控座標換算、持續低 FPS 視覺降級、果凍彈簧跨 30／60／120 FPS 與回彈衰減、NOXCAT 視覺資產、首頁灰階 Boss、生成式文件與透明 PNG／載入失敗 fallback 完整性）。
+- `npm run test:e2e`：依桌面／行動瀏覽器能力條件執行或略過。桌面 Chromium、390×844 Android Chrome profile 與 iPhone WebKit profile 都會在 API 失敗後，經 canvas 真實執行三次拉弓／放手／物理命中並完成 fallback 勝利；手機 profile 另驗證首頁、戰鬥與結束頁在 390×844／390×600 完整貼齊 live viewport、相機 X/Y zoom 相同、worldView 延伸正確，以及 resize 後沒有水平或垂直溢出；獨立案例會強制走 installed-PWA standalone fallback。測試也會透過 development-only hook 推進同一個 round-expiry 路徑，驗證 180 秒 `BOSS ESCAPED` 結算與兩條重玩流程；最後一擊另驗證九層 Boss 塌落演出確實先於結果頁。其餘涵蓋AI／fallback 預設九招洗牌順序、左右牆口實際進場、真實高速拖曳反彈、敵方紙張完成透視後的 seeded 雙向旋轉、遠景無碰撞、近景可見中心／碰撞中心一致、低 FPS handoff swept collision、兩張探針 `2 → 1 → 0` 個別加速離場、提早結束空白 ACTIVE、縮短 recovery、200ms 快速拖放、攻擊 `TELEGRAPH → ACTIVE → RECOVERY`、合成相機校正／Neutral 加成／抑制／無臉／完整清理、低 FPS 降級與真實 rAF cadence、暫停 Clock、鍵盤／讀屏語意、44px 觸控目標、橫向暫停與無版面溢出。
 - 正式版伺服器 smoke test：`dist/` 首頁、生成式 Boss PNG 與 `/api/boss` 都由同一個 Express process 回傳 200；未設定 API key 時正確回傳三段攻擊的本地 fallback。
+- 攻擊選招 dev/build 回歸：先啟動 `npm run dev` 與 `PORT=4175 npm start`，再執行 `~/.playwright-env/bin/python scripts/verify-attack-sequence.py`。此腳本以 Chromium 的桌面／手機尺寸、模擬 AI 回應與離線 fallback 比對三輪共 27 招，驗證九招完整、不連續重複、保留 AI 強度與時間、相同 seed 重播、不同 seed 變化，以及正式版忽略 `demo` 參數；不呼叫外部 AI API。
 - `npm run capture:screenshots`：對目前 `http://127.0.0.1:4173` 產生開始、危險區、透視攻擊、戰鬥、拖曳、回彈、發射與結果手機截圖。
 - `?debug=1`：FPS、狀態、hitbox、BossDNA 與操作控制。
 
