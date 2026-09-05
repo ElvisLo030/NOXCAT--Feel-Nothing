@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import type { AttackStep, PatternId } from '../../ai/bossSchema';
-import type { SeededRng } from '../../utils/rng';
+import { SeededRng } from '../../utils/rng';
+import { shuffleAttackRound } from '../attackSequence';
 import type { Noxcat } from '../entities/Noxcat';
 import { PLAYER_MIN_Y, PLAYER_MAX_Y } from '../constants';
 import {
@@ -114,10 +115,13 @@ export interface AttackDirectorHooks {
 
 export interface AttackSequenceConfig {
   readonly attacks: readonly AttackStep[];
+  readonly shuffleSeed?: number;
 }
 
 export class AttackDirector {
   private stepIndex = 0;
+  private roundAttacks: readonly AttackStep[];
+  private readonly orderRng?: SeededRng;
   private phaseElapsedMs = 0;
   private wavePhase: WavePhase = 'TELEGRAPH';
   private volley = 0;
@@ -139,10 +143,16 @@ export class AttackDirector {
     private readonly rng: SeededRng,
     private readonly projectiles: ProjectileSystem,
     private readonly hooks: AttackDirectorHooks = {} as AttackDirectorHooks,
-  ) {}
+  ) {
+    // 選招與彈幕布局各用獨立 RNG，避免玩家移動或布局抽樣影響下一輪順序。
+    this.orderRng = dna.shuffleSeed === undefined ? undefined : new SeededRng(dna.shuffleSeed);
+    this.roundAttacks = this.orderRng
+      ? shuffleAttackRound(dna.attacks, this.orderRng)
+      : dna.attacks;
+  }
 
   get currentPattern(): PatternId {
-    return this.dna.attacks[this.stepIndex]?.pattern ?? 'paper_rain';
+    return this.roundAttacks[this.stepIndex]?.pattern ?? 'paper_rain';
   }
 
   get currentPhase(): WavePhase {
@@ -226,7 +236,7 @@ export class AttackDirector {
     // BattleScene normally supplies <=50 ms. The loop also keeps phase timing
     // deterministic if a test or recovering browser supplies one long frame.
     while (remainingMs > 0 && this.running) {
-      const step = this.dna.attacks[this.stepIndex];
+      const step = this.roundAttacks[this.stepIndex];
       if (!step) return;
       if (this.canEnterEarlyRecovery(step.pattern)) {
         this.advanceWavePhase(step.pattern, step.intensity, playerLives);
@@ -274,7 +284,7 @@ export class AttackDirector {
         : candidate;
     } else if (this.currentPattern === 'comment_crossfire') {
       // 隨機組合在預警開始時決定，發射時沿用，避免箭頭與實際方向不符。
-      this.commentLayout = commentCrossfireLayout(this.rng, this.dna.attacks[this.stepIndex]!.intensity);
+      this.commentLayout = commentCrossfireLayout(this.rng, this.roundAttacks[this.stepIndex]!.intensity);
     } else if (this.currentPattern === 'closing_walls') {
       const maximumGapY = PLAYER_MAX_Y - CLOSING_WALL_SAFE_GAP_HALF_HEIGHT;
       const candidate = this.rng.range(PLAYER_MIN_Y, maximumGapY);
@@ -313,7 +323,14 @@ export class AttackDirector {
 
   private advanceStep(): void {
     this.cancelPatternTimeline();
-    this.stepIndex = (this.stepIndex + 1) % this.dna.attacks.length;
+    const previousPattern = this.currentPattern;
+    this.stepIndex += 1;
+    if (this.stepIndex >= this.roundAttacks.length) {
+      this.roundAttacks = this.orderRng
+        ? shuffleAttackRound(this.dna.attacks, this.orderRng, previousPattern)
+        : this.dna.attacks;
+      this.stepIndex = 0;
+    }
     this.beginStep();
   }
 
@@ -368,7 +385,7 @@ export class AttackDirector {
     intensity: 1 | 2 | 3,
     speedScale: number,
   ): AttackPatternHandle {
-    const step = this.dna.attacks[this.stepIndex];
+    const step = this.roundAttacks[this.stepIndex];
     const context: AttackPatternContext = {
       scene: this.hooks.scene,
       rng: this.rng,

@@ -16,7 +16,7 @@ export interface BattleFaceSnapshot {
 
 export interface BattleRuntimeConfig {
   boss: BossDNA;
-  /** Trusted runtime-only sequence; unlike BossDNA it may contain more than three steps. */
+  /** 開發環境限定的固定序列，供個別招式測試；正式版不採用此覆寫。 */
   attackSequence?: readonly AttackStep[];
   source: BossSource;
   annoyance: string;
