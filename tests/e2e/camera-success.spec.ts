@@ -15,7 +15,7 @@ interface FakeCameraState {
   workerTerminated: boolean;
 }
 
-test('optional camera succeeds through calibration, Neutral bonus, suppression, and cleanup', async ({ page }) => {
+test('default Neutral mode succeeds through calibration, bonus, suppression, and cleanup', async ({ page }) => {
   await installSyntheticCamera(page);
   await page.route('**/api/boss', (route) => route.fulfill({
     status: 200,
@@ -24,15 +24,14 @@ test('optional camera succeeds through calibration, Neutral bonus, suppression, 
   }));
   await page.goto('/?debug=1&faceTest=1');
 
-  await page.locator('.toggle-row').click();
-  await expect(page.locator('#camera-enabled')).toBeChecked();
   await page.getByTestId('generate-boss').click();
-  await expect(page.getByText('面無表情加成')).toBeVisible();
+  await expect(page.getByText('面無表情模式')).toBeVisible();
   await expect(page.getByText('鏡頭畫面不會上傳、不會錄影', { exact: false })).toBeVisible();
 
   const calibrationStartedAt = await page.evaluate(() => performance.now());
   await page.getByTestId('start-calibration').click();
   await expect(page.getByText('自然看向鏡頭')).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: '相機校正進度' })).toHaveAttribute('aria-valuenow', /\d+/);
   await expect(page.getByTestId('calibration-progress')).toContainText(
     /· (?:1\d|2\d)/,
     { timeout: 1_700 },
@@ -104,6 +103,8 @@ test('optional camera succeeds through calibration, Neutral bonus, suppression, 
     timeout: 5_000,
   });
   await expect(page.locator('.neutral-result')).toBeVisible();
+  await expect(page.locator('.neutral-result b')).toHaveText(/^\d+%$/);
+  await expect(page.locator('.neutral-result small')).toHaveText(/^最高 \d+%$/);
 
   await expect.poll(async () => (await readFakeCameraState(page)).trackReadyState).toBe('ended');
   const cameraAfterExit = await readFakeCameraState(page);

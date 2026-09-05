@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   ENERGY_MAX,
   ENERGY_PER_GRAZE,
+  LAUNCH_MISS_ENERGY,
   MAIN_ATTACK_DAMAGE,
   PLAYER_INVULNERABLE_MS,
+  ROUND_DURATION_MS,
 } from '../src/game/constants';
 import { BattleState } from '../src/game/events';
 import {
@@ -22,6 +24,13 @@ function landMainAttack(session: GameSession): void {
 }
 
 describe('GameSession combat rules', () => {
+  it('defaults to the configured 180-second round', () => {
+    const session = new GameSession();
+
+    expect(ROUND_DURATION_MS).toBe(180_000);
+    expect(session.remainingMs).toBe(180_000);
+  });
+
   it('clamps energy between zero and the maximum', () => {
     const session = new GameSession({ energy: -100 });
 
@@ -104,6 +113,58 @@ describe('GameSession combat rules', () => {
     expect(session.state).toBe(BattleState.DODGING);
     expect(session.energy).toBe(ENERGY_MAX);
     expect(session.transitions.at(-1)?.reason).toBe('vulnerability-expired');
+  });
+
+  it('keeps a missed launch active until the visual return has completed', () => {
+    const session = new GameSession({ energy: ENERGY_MAX });
+    session.startBattle();
+    session.openVulnerability();
+    session.beginAim();
+    session.releaseAim(100);
+
+    session.resolveLaunch(false);
+
+    expect(session.state).toBe(BattleState.LAUNCHED);
+    expect(session.energy).toBe(LAUNCH_MISS_ENERGY);
+    expect(session.launchMissReturnPending).toBe(true);
+    expect(session.snapshot().launchMissReturnPending).toBe(true);
+    expect(session.transitions.at(-1)?.reason).toBe('launched');
+
+    expect(session.completeLaunchMissReturn()).toBe(true);
+    expect(session.state).toBe(BattleState.DODGING);
+    expect(session.launchMissReturnPending).toBe(false);
+    expect(session.transitions.at(-1)?.reason).toBe('launch-return-complete');
+    expect(session.completeLaunchMissReturn()).toBe(false);
+  });
+
+  it('retains an ordered transition history for the debug overlay', () => {
+    const session = new GameSession({ energy: ENERGY_MAX });
+    session.startBattle();
+    session.openVulnerability();
+    session.beginAim();
+    session.releaseAim(100);
+
+    expect(session.transitions.map(({ from, to, reason }) => ({ from, to, reason }))).toEqual([
+      { from: BattleState.INTRO, to: BattleState.DODGING, reason: 'intro-complete' },
+      { from: BattleState.DODGING, to: BattleState.VULNERABLE, reason: 'energy-full' },
+      { from: BattleState.VULNERABLE, to: BattleState.AIMING, reason: 'aim-started' },
+      { from: BattleState.AIMING, to: BattleState.LAUNCHED, reason: 'launched' },
+    ]);
+  });
+
+  it('clears a pending launch return if the round expires during the rebound', () => {
+    const session = new GameSession({ energy: ENERGY_MAX, roundDurationMs: 1 });
+    session.startBattle();
+    session.openVulnerability();
+    session.beginAim();
+    session.releaseAim(100);
+    session.resolveLaunch(false);
+
+    session.advanceTime(1);
+
+    expect(session.state).toBe(BattleState.LOST);
+    expect(session.launchMissReturnPending).toBe(false);
+    expect(session.transitions.at(-1)?.reason).toBe('time-expired');
   });
 
   it('loses cleanly when the round timer expires', () => {

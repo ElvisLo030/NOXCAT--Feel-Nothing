@@ -9,18 +9,44 @@ export interface ProjectileDepthPose {
   displayDepth: number;
 }
 
+export interface InboundProjectileTransform {
+  readonly scaleX: number;
+  readonly scaleY: number;
+  readonly rotation: 0;
+}
+
 export interface ProjectileDepthPoint {
   readonly x: number;
   readonly y: number;
 }
 
-export const BOSS_PROJECTILE_ORIGIN: ProjectileDepthPoint = { x: 270, y: 260 };
+export interface ProjectilePerspectiveQuad {
+  readonly topLeft: ProjectileDepthPoint;
+  readonly topRight: ProjectileDepthPoint;
+  readonly bottomRight: ProjectileDepthPoint;
+  readonly bottomLeft: ProjectileDepthPoint;
+}
+
+/** Shared vanishing point: the Boss' lower bezel and every floor ray meet here. */
+export const BOSS_PROJECTILE_ORIGIN: ProjectileDepthPoint = { x: 270, y: 385 };
 export const TUNNEL_RADIUS_X = 300;
 export const TUNNEL_RADIUS_Y = 670;
 export const PROJECTILE_COLLISION_ENTRY_Y = 386;
+/**
+ * At 0.80 the card reaches display depth 30, matching NOXCAT's render depth.
+ * Its projected centre therefore becomes the gameplay collider here. Earlier
+ * depth remains presentation-only; radial exit motion still begins at depth 1.
+ */
+export const PROJECTILE_CONTACT_DEPTH = 0.80;
+export const FLOOR_GRID_EXPONENT = 1.8;
 
 export interface TunnelTrajectory {
+  /** Vanishing point for this ray. Side attacks use a wall portal here. */
+  readonly origin: ProjectileDepthPoint;
   readonly spawn: ProjectileDepthPoint;
+  /** Endpoint used only to measure progress along the authored pattern path. */
+  readonly approachPoint: ProjectileDepthPoint;
+  /** Authored point where the Boss-origin ray reaches near player depth. */
   readonly nearPoint: ProjectileDepthPoint;
   readonly laneAngle: number;
   readonly laneRadius: number;
@@ -36,9 +62,10 @@ export interface TunnelProjection {
   readonly collisionActive: boolean;
 }
 
-export const WALL_CARD_SCALE_Y = 1.6;
-const PROJECTILE_TEXTURE_HEIGHT = 62;
-const WALL_NEAR_DEPTH_SCALE = 1.42;
+export const WALL_CARD_SCALE_Y = 1;
+const PROJECTILE_TEXTURE_HEIGHT = 52;
+const FAR_DEPTH_SCALE = 0.13;
+const WALL_NEAR_DEPTH_SCALE = 1.55;
 const PLAYER_MIN_X = 46;
 const PLAYER_MAX_X = 494;
 const PLAYER_MIN_Y = 430;
@@ -69,20 +96,22 @@ export function calculateTunnelDepthPose(
   depth: number,
 ): ProjectileDepthPose {
   const progress = clamp(depth, 0, 1);
-  const expansion = perspectiveExpansion(progress);
+  const expansion = projectileDepthExpansion(progress);
   const scaleDepth = Math.pow(progress, 1.18);
   const endScale = kind === 'returnable'
-    ? 1.72
+    ? 1.78
     : kind === 'wall'
       ? WALL_NEAR_DEPTH_SCALE
       : kind === 'comment'
-        ? 1.48
-        : 1.55;
+        ? 1.55
+        : kind === 'homing'
+          ? 1.65
+          : 1.65;
   return {
     progress,
     alignment: expansion,
-    scale: lerp(0.16, endScale, scaleDepth),
-    foreshortening: lerp(kind === 'comment' ? 0.5 : 0.34, 1, scaleDepth),
+    scale: lerp(FAR_DEPTH_SCALE, endScale, scaleDepth),
+    foreshortening: lerp(kind === 'comment' ? 0.84 : 0.82, 1, scaleDepth),
     alpha: lerp(0.16, 1, Math.sqrt(progress)),
     // Far cards begin behind the Boss shell, then cross in front of the player
     // only at near depth. This gives the perspective pass correct occlusion.
@@ -92,13 +121,16 @@ export function calculateTunnelDepthPose(
 
 /**
  * Creates the shared deterministic ray used by every physical document. The
- * near point is where its fixed collider first enters the player contact area;
+ * near point is the authored impact-depth target (or a safe fallback entry);
  * until then the card is rendered on a polar lane inside the elliptical tunnel.
  */
 export function createTunnelTrajectory(
   spawn: ProjectileDepthPoint,
   velocity: ProjectileDepthPoint,
   projectileRadius: number,
+  perspectiveTarget?: ProjectileDepthPoint,
+  perspectiveDurationMs?: number,
+  perspectiveOrigin: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
 ): TunnelTrajectory {
   const padding = PLAYER_HIT_RADIUS + Math.max(0, projectileRadius);
   const collisionBounds = {
@@ -109,22 +141,51 @@ export function createTunnelTrajectory(
   };
   const entryTime = rayRectangleEntryTime(spawn, velocity, collisionBounds);
   const fallbackTime = firstForwardBoundaryTime(spawn, velocity);
-  const travelTime = entryTime ?? fallbackTime;
-  const nearPoint = Number.isFinite(travelTime)
+  const speed = Math.hypot(velocity.x, velocity.y);
+  const targetTravelTime = perspectiveTarget && speed > TUNNEL_EPSILON
+    ? Number.isFinite(perspectiveDurationMs) && (perspectiveDurationMs ?? 0) > 0
+      ? (perspectiveDurationMs ?? 0) / 1000
+      : Math.hypot(
+          perspectiveTarget.x - spawn.x,
+          perspectiveTarget.y - spawn.y,
+        ) / speed
+    : null;
+  const travelTime = targetTravelTime ?? entryTime ?? fallbackTime;
+  const approachPoint = Number.isFinite(travelTime)
     ? {
         x: spawn.x + velocity.x * travelTime,
         y: spawn.y + velocity.y * travelTime,
       }
     : { x: spawn.x, y: spawn.y };
-  const approachX = nearPoint.x - spawn.x;
-  const approachY = nearPoint.y - spawn.y;
+  const intendedTarget = perspectiveTarget ?? approachPoint;
+  const bossRay = {
+    x: intendedTarget.x - perspectiveOrigin.x,
+    y: intendedTarget.y - perspectiveOrigin.y,
+  };
+  const nearPlaneTime = perspectiveTarget
+    ? null
+    : rayRectangleEntryTime(perspectiveOrigin, bossRay, collisionBounds);
+  // Side-authored patterns used to activate at x=0/540 and then continue
+  // radially out of the arena. Intersecting their intended aim ray from the
+  // Boss makes the same ray enter and traverse a meaningful part of player
+  // space before it exits.
+  const nearPoint = nearPlaneTime === null || nearPlaneTime <= TUNNEL_EPSILON
+    ? intendedTarget
+    : {
+        x: perspectiveOrigin.x + bossRay.x * nearPlaneTime,
+        y: perspectiveOrigin.y + bossRay.y * nearPlaneTime,
+      };
+  const approachX = approachPoint.x - spawn.x;
+  const approachY = approachPoint.y - spawn.y;
   const approachLength = Math.hypot(approachX, approachY);
-  const normalizedX = (nearPoint.x - BOSS_PROJECTILE_ORIGIN.x) / TUNNEL_RADIUS_X;
-  const normalizedY = (nearPoint.y - BOSS_PROJECTILE_ORIGIN.y) / TUNNEL_RADIUS_Y;
+  const normalizedX = (nearPoint.x - perspectiveOrigin.x) / TUNNEL_RADIUS_X;
+  const normalizedY = (nearPoint.y - perspectiveOrigin.y) / TUNNEL_RADIUS_Y;
   const laneRadius = Math.hypot(normalizedX, normalizedY);
 
   return {
+    origin: { ...perspectiveOrigin },
     spawn: { ...spawn },
+    approachPoint,
     nearPoint,
     laneAngle: Math.atan2(normalizedY, normalizedX),
     laneRadius,
@@ -158,18 +219,29 @@ export function sampleTunnelProjection(
     1,
   ));
   if (depth >= 1 - TUNNEL_EPSILON) {
+    const deviationX = collider.x - trajectory.approachPoint.x;
+    const deviationY = collider.y - trajectory.approachPoint.y;
+    const position = {
+      x: trajectory.nearPoint.x + deviationX,
+      y: trajectory.nearPoint.y + deviationY,
+    };
     return {
-      position: { ...collider },
+      position,
       depth: 1,
-      radialDistance: distanceFromOrigin(collider),
+      radialDistance: distanceFromOrigin(position),
       collisionActive: true,
     };
   }
 
-  const basePosition = projectTunnelLane(trajectory.laneAngle, trajectory.laneRadius, depth);
+  const basePosition = projectTunnelLane(
+    trajectory.laneAngle,
+    trajectory.laneRadius,
+    depth,
+    trajectory.origin,
+  );
   const expectedCollider = {
-    x: lerp(trajectory.spawn.x, trajectory.nearPoint.x, depth),
-    y: lerp(trajectory.spawn.y, trajectory.nearPoint.y, depth),
+    x: lerp(trajectory.spawn.x, trajectory.approachPoint.x, depth),
+    y: lerp(trajectory.spawn.y, trajectory.approachPoint.y, depth),
   };
   // Homing may bend away from the initial ray. Blend that deviation in over
   // depth so the render path remains smooth and already matches the collider
@@ -183,13 +255,171 @@ export function sampleTunnelProjection(
     position,
     depth,
     radialDistance: distanceFromOrigin(position),
-    collisionActive: false,
+    collisionActive: depth >= PROJECTILE_CONTACT_DEPTH - TUNNEL_EPSILON,
   };
 }
 
-/** Frame-rate-independent logical length for the short projected speed trace. */
-export function projectileStreakLength(depth: number): number {
-  return lerp(10, 75, Math.pow(clamp(depth, 0, 1), 1.25));
+/**
+ * Keeps inbound documents front-facing while their silhouette communicates
+ * acceleration. Values depend on px/s rather than per-frame displacement, so
+ * 30/60/120 Hz produce the same shape for the same projected motion.
+ */
+export function calculateInboundProjectileTransform(
+  depth: number,
+  projectedSpeedPerSecond: number,
+  authoredRotationSpeed = 0,
+): InboundProjectileTransform {
+  // Deliberately consume but ignore authored spin during the inbound phase.
+  void authoredRotationSpeed;
+  const progress = clamp(depth, 0, 1);
+  const speed01 = smoothstep(120, 920, Math.max(0, projectedSpeedPerSecond));
+  const accelerationEnvelope = Math.sin(
+    Math.PI * smoothstep(0.08, 1, progress),
+  );
+  const nearOvershoot = smoothstep(0.88, 1, progress);
+  const farFlatten = 1 - 0.1 * (1 - smoothstep(0, 0.2, progress));
+  const stretch = accelerationEnvelope * lerp(0.1, 0.3, speed01);
+
+  return {
+    scaleX: 1 - accelerationEnvelope * lerp(0.04, 0.14, speed01)
+      + nearOvershoot * 0.025 * speed01,
+    scaleY: farFlatten + stretch + nearOvershoot * 0.045 * speed01,
+    rotation: 0,
+  };
+}
+
+/**
+ * Projects a card plane into a four-corner keystone. Each lane gets its own
+ * yaw and pitch while roll stays zero. This is intentionally separate from
+ * the depth scale: scaling alone preserves a perfect rectangle and reads as a
+ * flat UI element growing on screen, while the pinhole projection makes the
+ * left and right cards expose opposite faces.
+ *
+ * Returned points are screen-space offsets around a zero centroid. Keeping the
+ * centroid fixed lets the visual quad share the projectile's existing logical
+ * centre without changing collision or the far/near hand-off.
+ */
+export function calculateProjectilePerspectiveQuad(
+  projectedCenter: ProjectileDepthPoint,
+  displayWidth: number,
+  displayHeight: number,
+  depth: number,
+  directionReference: ProjectileDepthPoint = projectedCenter,
+  vanishingPoint: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
+): ProjectilePerspectiveQuad {
+  const halfWidth = Math.max(0, displayWidth) / 2;
+  const halfHeight = Math.max(0, displayHeight) / 2;
+  // Use the authored near point as the stable lane reference. This matters
+  // visually: two cards at the same depth but on opposite sides now get
+  // opposite yaw instead of sharing one generic trapezoid. It also prevents a
+  // homing correction or a low-FPS hand-off from making the card's face wobble
+  // or flip orientation while it is coming straight toward the camera.
+  const horizontalSpan = Math.max(
+    vanishingPoint.x - PLAYER_MIN_X,
+    PLAYER_MAX_X - vanishingPoint.x,
+  );
+  const verticalSpan = Math.max(
+    1,
+    PLAYER_MAX_Y - vanishingPoint.y,
+  );
+  const laneSource = Math.hypot(
+    directionReference.x - vanishingPoint.x,
+    directionReference.y - vanishingPoint.y,
+  ) > TUNNEL_EPSILON
+    ? directionReference
+    : projectedCenter;
+  const laneX = clamp(
+    (laneSource.x - vanishingPoint.x) / Math.max(1, horizontalSpan),
+    -1,
+    1,
+  );
+  const laneY = clamp(
+    (laneSource.y - vanishingPoint.y) / verticalSpan,
+    -1,
+    1,
+  );
+
+  // This is a small, real 3D projection rather than a 2D scale/shear trick.
+  // The card plane has yaw (from its left/right lane) and pitch (from its
+  // vertical lane), but deliberately no roll, so inbound documents never spin
+  // in screen space. Mirrored lanes therefore produce mirrored keystones.
+  const orientationEnvelope = lerp(0.44, 1, smoothstep(0.04, 0.92, depth));
+  const degreesToRadians = Math.PI / 180;
+  // Screen-space lane direction and 3D plane yaw have opposite signs: a card
+  // travelling toward the left side must open its inner (right) edge toward
+  // the Boss ray, with the right lane using the exact mirrored orientation.
+  const yaw = -laneX * 42 * degreesToRadians * orientationEnvelope;
+  const pitch = laneY * 25 * degreesToRadians * orientationEnvelope;
+  const cosineYaw = Math.cos(yaw);
+  const sineYaw = Math.sin(yaw);
+  const cosinePitch = Math.cos(pitch);
+  const sinePitch = Math.sin(pitch);
+  const focalLength = Math.max(1, Math.max(displayWidth, displayHeight) * 1.55);
+  const sourceCorners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight },
+  ] as const;
+  const warped = sourceCorners.map((corner) => {
+    // Rotate the local plane around world Y (lane yaw), then world X (floor
+    // pitch). Positive local Z points toward the camera.
+    const yawedX = corner.x * cosineYaw;
+    const yawedZ = corner.x * sineYaw;
+    const pitchedY = corner.y * cosinePitch - yawedZ * sinePitch;
+    const pitchedZ = corner.y * sinePitch + yawedZ * cosinePitch;
+    const perspectiveDivisor = Math.max(0.52, 1 - pitchedZ / focalLength);
+    return {
+      x: yawedX / perspectiveDivisor,
+      y: pitchedY / perspectiveDivisor,
+    };
+  });
+  const centroid = warped.reduce(
+    (sum, corner) => ({ x: sum.x + corner.x / 4, y: sum.y + corner.y / 4 }),
+    { x: 0, y: 0 },
+  );
+  const centered = warped.map((corner) => ({
+    x: corner.x - centroid.x,
+    y: corner.y - centroid.y,
+  }));
+
+  return {
+    topLeft: centered[0]!,
+    topRight: centered[1]!,
+    bottomRight: centered[2]!,
+    bottomLeft: centered[3]!,
+  };
+}
+
+/** Non-linear floor rows bunch at the horizon and spread toward the camera. */
+export function floorGridY(
+  index: number,
+  divisions: number,
+  bottomY: number,
+): number {
+  const t = clamp(index / Math.max(1, divisions), 0, 1);
+  return BOSS_PROJECTILE_ORIGIN.y
+    + (bottomY - BOSS_PROJECTILE_ORIGIN.y) * Math.pow(t, FLOOR_GRID_EXPONENT);
+}
+
+/**
+ * Continues a card through the near plane along the same screen-space ray it
+ * used while approaching the camera. Without this hand-off, legacy pattern
+ * velocities make a perspective card abruptly turn into a vertical fall or a
+ * flat horizontal slide as soon as depth reaches one.
+ */
+export function radialNearPlaneVelocity(
+  trajectory: TunnelTrajectory,
+  speed: number,
+): ProjectileDepthPoint {
+  const rayX = trajectory.nearPoint.x - trajectory.origin.x;
+  const rayY = trajectory.nearPoint.y - trajectory.origin.y;
+  const rayLength = Math.hypot(rayX, rayY);
+  if (rayLength <= TUNNEL_EPSILON || speed <= 0) return { x: 0, y: 0 };
+  return {
+    x: rayX / rayLength * speed,
+    y: rayY / rayLength * speed,
+  };
 }
 
 /** Projects one polar lane onto an expanding elliptical tunnel cross-section. */
@@ -197,20 +427,37 @@ export function projectTunnelLane(
   laneAngle: number,
   laneRadius: number,
   depth: number,
+  origin: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
 ): ProjectileDepthPoint {
-  const expansion = perspectiveExpansion(clamp(depth, 0, 1));
+  const expansion = projectileDepthExpansion(depth);
   return {
-    x: BOSS_PROJECTILE_ORIGIN.x
+    x: origin.x
       + Math.cos(laneAngle) * TUNNEL_RADIUS_X * laneRadius * expansion,
-    y: BOSS_PROJECTILE_ORIGIN.y
+    y: origin.y
       + Math.sin(laneAngle) * TUNNEL_RADIUS_Y * laneRadius * expansion,
   };
 }
 
-function perspectiveExpansion(depth: number): number {
-  // Objects accelerate radially as they approach the camera; unlike a linear
-  // 2D lerp this produces the near-large / far-small tunnel read.
-  return Math.pow(clamp(depth, 0, 1), 1.58);
+/** Shared radial expansion used by projectile rays and fairness projections. */
+export function projectileDepthExpansion(depth: number): number {
+  // A moderate power curve gives the far card a short readable beat without
+  // pinning it to the Boss, then increases screen-space travel each quarter as
+  // it approaches the camera.
+  return Math.pow(clamp(depth, 0, 1), 1.35);
+}
+
+/** Projects a ray's authored near point to one explicit tunnel depth. */
+export function projectTunnelTargetAtDepth(
+  target: ProjectileDepthPoint,
+  depth: number,
+): ProjectileDepthPoint {
+  const expansion = projectileDepthExpansion(depth);
+  return {
+    x: BOSS_PROJECTILE_ORIGIN.x
+      + (target.x - BOSS_PROJECTILE_ORIGIN.x) * expansion,
+    y: BOSS_PROJECTILE_ORIGIN.y
+      + (target.y - BOSS_PROJECTILE_ORIGIN.y) * expansion,
+  };
 }
 
 function distanceFromOrigin(point: ProjectileDepthPoint): number {
@@ -275,4 +522,10 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function lerp(from: number, to: number, amount: number): number {
   return from + (to - from) * amount;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  if (edge0 === edge1) return value < edge0 ? 0 : 1;
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }

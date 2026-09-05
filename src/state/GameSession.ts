@@ -33,6 +33,7 @@ export interface BattleTransition {
 
 export interface GameSessionSnapshot {
   state: BattleState;
+  launchMissReturnPending: boolean;
   lives: number;
   energy: number;
   bossHp: number;
@@ -92,6 +93,7 @@ export class GameSession {
   private currentBossHp: number;
   private currentElapsedMs = 0;
   private currentInvulnerableUntilMs = 0;
+  private currentLaunchMissReturnPending = false;
   private readonly durationMs: number;
   private neutralTotal = 0;
   private neutralSamples = 0;
@@ -138,6 +140,10 @@ export class GameSession {
     return this.currentInvulnerableUntilMs;
   }
 
+  get launchMissReturnPending(): boolean {
+    return this.currentLaunchMissReturnPending;
+  }
+
   get averageNeutral(): number | null {
     return this.neutralSamples === 0 ? null : this.neutralTotal / this.neutralSamples;
   }
@@ -153,6 +159,7 @@ export class GameSession {
 
     const from = this.currentState;
     this.currentState = next;
+    if (next !== BattleState.LAUNCHED) this.currentLaunchMissReturnPending = false;
     this.transitions.push({
       from,
       to: next,
@@ -282,6 +289,7 @@ export class GameSession {
       return false;
     }
 
+    this.currentLaunchMissReturnPending = false;
     this.transition(BattleState.LAUNCHED, 'launched');
     return true;
   }
@@ -293,10 +301,14 @@ export class GameSession {
 
     if (!hitBoss) {
       this.currentEnergy = LAUNCH_MISS_ENERGY;
-      this.transition(BattleState.DODGING, 'launch-missed');
+      // Crossing the boundary starts the visual rebound, but the launch is not
+      // finished until NOXCAT has landed back in the play area. Keeping the
+      // state LAUNCHED also keeps collision and attack spawning suspended.
+      this.currentLaunchMissReturnPending = true;
       return;
     }
 
+    this.currentLaunchMissReturnPending = false;
     this.currentBossHp = clamp(this.currentBossHp - MAIN_ATTACK_DAMAGE, 0, BOSS_MAX_HP);
     this.currentEnergy = 0;
     this.mainAttackHits += 1;
@@ -305,6 +317,16 @@ export class GameSession {
     if (this.currentBossHp === 0) {
       this.transition(BattleState.WON, 'boss-defeated');
     }
+  }
+
+  completeLaunchMissReturn(): boolean {
+    if (this.currentState !== BattleState.LAUNCHED || !this.currentLaunchMissReturnPending) {
+      return false;
+    }
+
+    this.currentLaunchMissReturnPending = false;
+    this.transition(BattleState.DODGING, 'launch-return-complete');
+    return true;
   }
 
   endStagger(): boolean {
@@ -344,6 +366,7 @@ export class GameSession {
   snapshot(): GameSessionSnapshot {
     return {
       state: this.currentState,
+      launchMissReturnPending: this.currentLaunchMissReturnPending,
       lives: this.currentLives,
       energy: this.currentEnergy,
       bossHp: this.currentBossHp,

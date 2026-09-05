@@ -1,11 +1,13 @@
+import { PALETTE } from '../theme/palette';
+
 export interface NoxcatDesignPoint {
   readonly x: number;
   readonly y: number;
 }
 
 /** Official high-saturation accent specified by the supplied usage guide. */
-export const NOXCAT_OFFICIAL_GREEN = 0x91d500;
-export const NOXCAT_OFFICIAL_BLACK = 0x101820;
+export const NOXCAT_OFFICIAL_GREEN = PALETTE.green;
+export const NOXCAT_OFFICIAL_BLACK = PALETTE.black;
 
 export const NOXCAT_BUN_START = { x: 32, y: 176 } as const;
 
@@ -58,8 +60,8 @@ export const NOXCAT_EYES = [
 export function sampleNoxcatBunOutline(samplesPerCurve = 12): NoxcatDesignPoint[] {
   const steps = Math.max(2, Math.floor(samplesPerCurve));
   const points: NoxcatDesignPoint[] = [{ ...NOXCAT_BUN_START }];
-  let fromX = NOXCAT_BUN_START.x;
-  let fromY = NOXCAT_BUN_START.y;
+  let fromX: number = NOXCAT_BUN_START.x;
+  let fromY: number = NOXCAT_BUN_START.y;
 
   for (const [control1X, control1Y, control2X, control2Y, endX, endY] of NOXCAT_BUN_CURVES) {
     for (let index = 1; index <= steps; index += 1) {

@@ -210,6 +210,10 @@ export class FaceController {
   private status: FaceControllerStatus = 'idle';
   private mode: FaceTrackingMode | null = null;
   private stream: MediaStream | null = null;
+  private readonly trackEndListeners: Array<{
+    track: MediaStreamTrack;
+    listener: EventListener;
+  }> = [];
   private video: HTMLVideoElement | null = null;
   private ownsVideo = false;
   private worker: Worker | null = null;
@@ -322,6 +326,11 @@ export class FaceController {
         },
       });
     } catch (error) {
+      // A previous start must never overwrite the status or release resources
+      // belonging to a newer lifecycle after its permission prompt settles.
+      if (activeLifecycle !== this.lifecycle) {
+        return { ok: false, mode: null, reason: 'stopped' };
+      }
       const reason = cameraFailureReason(error);
       this.emitStatus('unavailable', reason);
       return { ok: false, mode: null, reason };
@@ -333,9 +342,13 @@ export class FaceController {
     }
 
     this.stream = requestedStream;
+    this.watchStreamEnd(requestedStream, activeLifecycle);
     try {
       await this.prepareVideo(requestedStream, activeLifecycle);
     } catch {
+      if (activeLifecycle !== this.lifecycle) {
+        return { ok: false, mode: null, reason: 'stopped' };
+      }
       await this.releaseResources();
       this.emitStatus('unavailable', 'video-failed');
       return { ok: false, mode: null, reason: 'video-failed' };
@@ -346,7 +359,11 @@ export class FaceController {
     }
 
     this.emitStatus('initializing');
-    if (await this.initializeWorker()) {
+    const workerReady = await this.initializeWorker();
+    if (activeLifecycle !== this.lifecycle) {
+      return { ok: false, mode: null, reason: 'stopped' };
+    }
+    if (workerReady) {
       this.mode = 'worker';
     } else {
       try {
@@ -961,6 +978,28 @@ export class FaceController {
     this.highestNeutral = null;
   }
 
+  private watchStreamEnd(stream: MediaStream, activeLifecycle: number): void {
+    this.clearTrackEndListeners();
+    for (const track of stream.getTracks()) {
+      // MediaStreamTrack is an EventTarget in browsers. The feature check
+      // keeps synthetic/test streams and older embedded webviews harmless.
+      if (typeof track.addEventListener !== 'function') continue;
+      const listener: EventListener = () => {
+        if (activeLifecycle !== this.lifecycle || this.stream !== stream) return;
+        void this.failRuntime('camera-failed');
+      };
+      track.addEventListener('ended', listener, { once: true });
+      this.trackEndListeners.push({ track, listener });
+    }
+  }
+
+  private clearTrackEndListeners(): void {
+    for (const { track, listener } of this.trackEndListeners) {
+      track.removeEventListener('ended', listener);
+    }
+    this.trackEndListeners.length = 0;
+  }
+
   private async releaseResources(): Promise<void> {
     this.lifecycle += 1;
     this.stopCaptureLoop();
@@ -973,6 +1012,7 @@ export class FaceController {
 
     const stream = this.stream;
     this.stream = null;
+    this.clearTrackEndListeners();
     stream?.getTracks().forEach((track) => track.stop());
 
     const video = this.video;

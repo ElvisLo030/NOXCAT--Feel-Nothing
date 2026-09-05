@@ -1,40 +1,47 @@
+import type Phaser from 'phaser';
 import type { BossDNA, PatternId } from '../../ai/bossSchema';
 import type { SeededRng } from '../../utils/rng';
+import type { Noxcat } from '../entities/Noxcat';
 import {
   CLOSING_WALL_SAFE_GAP_HALF_HEIGHT,
-  spawnClosingWalls,
+  runClosingWalls,
 } from '../patterns/closingWalls';
 import {
   COMMENT_SAFE_LANE_HALF_HEIGHT,
-  spawnCommentCrossfire,
+  runCommentCrossfire,
 } from '../patterns/commentCrossfire';
-import { spawnDeadlineBeam } from '../patterns/deadlineBeam';
+import { runDeadlineBeam } from '../patterns/deadlineBeam';
 import {
   PAPER_SAFE_LANE_HALF_WIDTH,
-  spawnPaperRain,
+  runPaperRain,
 } from '../patterns/paperRain';
 import {
   RETURNABLE_SAFE_LANE_HALF_WIDTH,
-  spawnReturnableBurst,
+  runReturnableBurst,
 } from '../patterns/returnableBurst';
-import { spawnRevisionHoming } from '../patterns/revisionHoming';
+import { runRevisionHoming } from '../patterns/revisionHoming';
 import {
   clamp,
   clampPlayerPosition,
   moveTowards,
   type PlayerPosition,
 } from '../patterns/fairness';
+import type {
+  AttackPatternContext,
+  AttackPatternHandle,
+} from '../patterns/types';
 import type { ProjectileSystem } from './ProjectileSystem';
+import {
+  dangerZonesForPattern,
+  type DangerZoneHint,
+  type SafeLaneHint,
+} from './DangerTelegraph';
 
 export type WavePhase = 'TELEGRAPH' | 'ACTIVE' | 'RECOVERY';
 
-export interface SafeLaneHint {
-  axis: 'vertical' | 'horizontal';
-  center: number;
-  halfWidth: number;
-}
+export type { DangerZoneHint, SafeLaneHint } from './DangerTelegraph';
 
-const TELEGRAPH_MS: Readonly<Record<PatternId, number>> = {
+export const ATTACK_TELEGRAPH_MS: Readonly<Record<PatternId, number>> = {
   paper_rain: 500,
   comment_crossfire: 550,
   deadline_beam: 750,
@@ -43,16 +50,32 @@ const TELEGRAPH_MS: Readonly<Record<PatternId, number>> = {
   returnable_burst: 550,
 };
 
-const RECOVERY_MS: Readonly<Record<PatternId, number>> = {
-  paper_rain: 900,
-  comment_crossfire: 950,
-  deadline_beam: 900,
-  closing_walls: 1_100,
-  revision_homing: 1_000,
-  returnable_burst: 950,
+export const ATTACK_RECOVERY_MS: Readonly<Record<PatternId, number>> = {
+  paper_rain: 360,
+  comment_crossfire: 400,
+  deadline_beam: 420,
+  closing_walls: 500,
+  revision_homing: 440,
+  returnable_burst: 380,
+};
+
+/**
+ * Prevents a failed/instantly-cleared spawn from flashing straight through
+ * ACTIVE. Normal waves stay active until their final hostile leaves; the
+ * returnable wave additionally preserves its authored interaction beat.
+ */
+export const ATTACK_MIN_ACTIVE_MS: Readonly<Record<PatternId, number>> = {
+  paper_rain: 1_200,
+  comment_crossfire: 1_100,
+  deadline_beam: 520,
+  closing_walls: 1_400,
+  revision_homing: 1_500,
+  returnable_burst: 2_140,
 };
 
 export interface AttackDirectorHooks {
+  scene: Phaser.Scene;
+  player: Noxcat;
   onPatternChanged?: (pattern: PatternId) => void;
   onReturnableTutorial?: () => void;
   onWavePhaseChanged?: (
@@ -60,6 +83,7 @@ export interface AttackDirectorHooks {
     pattern: PatternId,
     volley: number,
     safeLane?: SafeLaneHint,
+    dangerZones?: readonly DangerZoneHint[],
   ) => void;
   getPlayerPosition?: () => PlayerPosition;
 }
@@ -75,12 +99,14 @@ export class AttackDirector {
   private commentSafeLane = 650;
   private returnableSafeLane = 270;
   private wallSafeGap = 650;
+  private deadlineBeamY = 650;
+  private activePattern?: AttackPatternHandle;
 
   constructor(
     private readonly dna: BossDNA,
     private readonly rng: SeededRng,
     private readonly projectiles: ProjectileSystem,
-    private readonly hooks: AttackDirectorHooks = {}
+    private readonly hooks: AttackDirectorHooks,
   ) {}
 
   get currentPattern(): PatternId {
@@ -106,7 +132,17 @@ export class AttackDirector {
     }
   }
 
+  get currentDangerZones(): readonly DangerZoneHint[] {
+    return dangerZonesForPattern(
+      this.currentPattern,
+      this.currentSafeLane,
+      this.playerPosition(),
+      this.deadlineBeamY,
+    );
+  }
+
   start(): void {
+    this.cancelPatternTimeline();
     this.running = true;
     this.beginStep();
   }
@@ -122,6 +158,7 @@ export class AttackDirector {
 
   cancelCurrent(): void {
     this.running = false;
+    this.cancelPatternTimeline();
     this.projectiles.clearDangerous(true);
   }
 
@@ -133,15 +170,32 @@ export class AttackDirector {
     while (remainingMs > 0 && this.running) {
       const step = this.dna.attacks[this.stepIndex];
       if (!step) return;
+      if (this.canEnterEarlyRecovery(step.pattern)) {
+        this.advanceWavePhase(step.pattern, step.intensity, playerLives);
+        continue;
+      }
+      const phaseAtFrameStart = this.wavePhase;
       const phaseRemainingMs = Math.max(
         0,
         this.phaseDuration(step.pattern, step.durationMs, this.wavePhase) - this.phaseElapsedMs,
       );
-      const advanceMs = Math.min(remainingMs, phaseRemainingMs);
+      const minActiveRemainingMs = this.wavePhase === 'ACTIVE'
+        ? Math.max(0, ATTACK_MIN_ACTIVE_MS[step.pattern] - this.phaseElapsedMs)
+        : Number.POSITIVE_INFINITY;
+      const advanceMs = Math.min(
+        remainingMs,
+        phaseRemainingMs,
+        minActiveRemainingMs > 0 ? minActiveRemainingMs : Number.POSITIVE_INFINITY,
+      );
       this.phaseElapsedMs += advanceMs;
       remainingMs -= advanceMs;
+      if (phaseAtFrameStart === 'ACTIVE') this.activePattern?.update(advanceMs);
 
       if (this.phaseElapsedMs >= this.phaseDuration(step.pattern, step.durationMs, this.wavePhase)) {
+        this.advanceWavePhase(step.pattern, step.intensity, playerLives);
+        continue;
+      }
+      if (this.canEnterEarlyRecovery(step.pattern)) {
         this.advanceWavePhase(step.pattern, step.intensity, playerLives);
         continue;
       }
@@ -169,6 +223,8 @@ export class AttackDirector {
         : candidate;
     } else if (this.currentPattern === 'returnable_burst') {
       this.returnableSafeLane = clamp(player?.x ?? this.rng.range(150, 390), 70, 470);
+    } else if (this.currentPattern === 'deadline_beam') {
+      this.deadlineBeamY = this.rng.range(500, 790);
     }
     this.hooks.onPatternChanged?.(this.currentPattern);
     this.hooks.onWavePhaseChanged?.(
@@ -176,18 +232,23 @@ export class AttackDirector {
       this.currentPattern,
       this.volley,
       this.currentSafeLane,
+      this.currentDangerZones,
     );
   }
 
   private advanceStep(): void {
+    this.cancelPatternTimeline();
     this.stepIndex = (this.stepIndex + 1) % this.dna.attacks.length;
     this.beginStep();
   }
 
   private phaseDuration(pattern: PatternId, stepDurationMs: number, phase: WavePhase): number {
-    if (phase === 'TELEGRAPH') return TELEGRAPH_MS[pattern];
-    if (phase === 'RECOVERY') return RECOVERY_MS[pattern];
-    return Math.max(1, stepDurationMs - TELEGRAPH_MS[pattern] - RECOVERY_MS[pattern]);
+    if (phase === 'TELEGRAPH') return ATTACK_TELEGRAPH_MS[pattern];
+    if (phase === 'RECOVERY') return ATTACK_RECOVERY_MS[pattern];
+    return Math.max(
+      1,
+      stepDurationMs - ATTACK_TELEGRAPH_MS[pattern] - ATTACK_RECOVERY_MS[pattern],
+    );
   }
 
   private advanceWavePhase(
@@ -199,13 +260,15 @@ export class AttackDirector {
     if (this.wavePhase === 'TELEGRAPH') {
       this.wavePhase = 'ACTIVE';
       const speedScale = playerLives <= 1 ? 0.87 : 1;
-      this.spawnPattern(pattern, intensity, speedScale);
+      this.activePattern = this.startPattern(pattern, intensity, speedScale);
       this.volley += 1;
     } else if (this.wavePhase === 'ACTIVE') {
       this.wavePhase = 'RECOVERY';
-      // ACTIVE owns the complete projectile travel window. Clear any slow
-      // stragglers now so RECOVERY is a genuine empty breathing interval.
-      this.projectiles.clearDangerous(true);
+      this.cancelPatternTimeline();
+      // Stop gameplay ownership, but let each card preserve its perspective
+      // momentum and leave beyond the viewport on its own. Emergency clears
+      // (hit / vulnerability / cancellation) still use the explicit fade.
+      this.projectiles.releaseDangerousForExit();
     } else {
       this.advanceStep();
       return;
@@ -215,66 +278,89 @@ export class AttackDirector {
       pattern,
       this.volley,
       this.currentSafeLane,
+      this.currentDangerZones,
     );
   }
 
-  private spawnPattern(pattern: PatternId, intensity: 1 | 2 | 3, speedScale: number): void {
-    const player = this.playerPosition();
+  private startPattern(
+    pattern: PatternId,
+    intensity: 1 | 2 | 3,
+    speedScale: number,
+  ): AttackPatternHandle {
+    const step = this.dna.attacks[this.stepIndex];
+    const context: AttackPatternContext = {
+      scene: this.hooks.scene,
+      rng: this.rng,
+      intensity,
+      durationMs: this.phaseDuration(pattern, step?.durationMs ?? 4_500, 'ACTIVE'),
+      player: this.hooks.player,
+      projectiles: this.projectiles,
+      speedScale,
+      waveIndex: this.volley,
+    };
     switch (pattern) {
       case 'paper_rain': {
-        spawnPaperRain(this.projectiles, this.rng, intensity, speedScale, this.paperSafeLane);
-        break;
+        return runPaperRain(context, this.paperSafeLane);
       }
       case 'comment_crossfire':
-        spawnCommentCrossfire(
-          this.projectiles,
-          this.rng,
-          intensity,
-          this.volley,
-          speedScale,
-          { x: player?.x ?? 270, y: this.commentSafeLane },
-        );
-        break;
+        return runCommentCrossfire(context, this.commentSafeLane);
       case 'deadline_beam':
-        spawnDeadlineBeam(this.projectiles, this.rng);
-        break;
+        return runDeadlineBeam(context, this.deadlineBeamY);
       case 'closing_walls': {
-        spawnClosingWalls(
-          this.projectiles,
-          this.rng,
-          intensity,
-          speedScale,
+        return runClosingWalls(
+          context,
           this.wallSafeGap,
+          (safeGapY) => { this.wallSafeGap = safeGapY; },
         );
-        break;
       }
       case 'revision_homing':
-        spawnRevisionHoming(this.projectiles, this.rng, intensity, speedScale);
-        break;
+        return runRevisionHoming(context);
       case 'returnable_burst': {
-        const spawned = spawnReturnableBurst(
-          this.projectiles,
-          this.rng,
-          intensity,
-          this.volley,
-          speedScale,
-          { x: this.returnableSafeLane, y: player?.y ?? 720 },
+        return runReturnableBurst(
+          context,
+          this.returnableSafeLane,
+          () => {
+            if (this.returnableTutorialShown) return;
+            this.returnableTutorialShown = true;
+            this.hooks.onReturnableTutorial?.();
+          },
         );
-        if (spawned && !this.returnableTutorialShown) {
-          this.returnableTutorialShown = true;
-          this.hooks.onReturnableTutorial?.();
-        }
-        break;
       }
     }
   }
 
+  private cancelPatternTimeline(): void {
+    this.activePattern?.cancel();
+    this.activePattern = undefined;
+  }
+
+  private canEnterEarlyRecovery(pattern: PatternId): boolean {
+    if (this.wavePhase !== 'ACTIVE'
+      || this.phaseElapsedMs < ATTACK_MIN_ACTIVE_MS[pattern]
+      || !this.activePattern?.finished) {
+      return false;
+    }
+    const hostileProjectile = this.projectiles.activeProjectiles().some((projectile) => (
+      projectile.isDamage && !projectile.friendly
+    ));
+    // A warning beam is still a scheduled threat even before its damaging
+    // segment begins, so retain the wave until the beam object is exhausted.
+    const hostileBeam = this.projectiles.activeBeams().some((beam) => (
+      beam.telegraphMs > 0 || beam.activeMs > 0
+    ));
+    return !hostileProjectile && !hostileBeam;
+  }
+
   private playerPosition(): PlayerPosition | undefined {
+    let position: PlayerPosition | undefined;
     try {
-      return clampPlayerPosition(this.hooks.getPlayerPosition?.());
+      position = this.hooks.getPlayerPosition?.();
     } catch {
       // A presentation hook must never be able to stop deterministic attacks.
-      return undefined;
     }
+    return clampPlayerPosition(position ?? {
+      x: this.hooks.player.x,
+      y: this.hooks.player.y,
+    });
   }
 }

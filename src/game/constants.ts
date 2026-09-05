@@ -1,10 +1,16 @@
 export const GAME_WIDTH = 540;
 export const GAME_HEIGHT = 960;
 
-export const ROUND_DURATION_MS = 75_000;
+export const ROUND_DURATION_MS = 180_000;
 export const PLAYER_MAX_LIVES = 3;
 export const PLAYER_HIT_RADIUS = 18;
 export const PLAYER_GRAZE_RADIUS = 43;
+// Incoming damage keeps the small, fair core above. Intentional offensive
+// contact uses the readable bun silhouette instead, so a fast swipe or launch
+// cannot visibly overlap a target while missing its tiny damage core.
+export const PLAYER_REFLECT_RADIUS = 46;
+export const PLAYER_LAUNCH_RADIUS = 50;
+export const BOSS_WEAK_POINT_RADIUS = 38;
 export const PLAYER_INVULNERABLE_MS = 1_100;
 export const POST_HIT_RELIEF_MS = 1_500;
 export const FINGER_OFFSET_Y = 72;

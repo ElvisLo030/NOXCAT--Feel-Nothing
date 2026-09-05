@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
+import { PALETTE, PALETTE_CSS } from '../../theme/palette';
 import type { BossDNA } from '../../ai/bossSchema';
+import type { BossSource } from '../../ai/bossClient';
 import type { BattleFaceSnapshot } from '../runtime';
 import type { Noxcat } from '../entities/Noxcat';
 import type { GameSession } from '../../state/GameSession';
@@ -20,16 +22,18 @@ export class DebugOverlay {
   private readonly hitboxGraphics: Phaser.GameObjects.Graphics;
   private showDna = false;
   private showHitboxes = false;
+  private nextInfoUpdateMs = 0;
 
   constructor(
     scene: Phaser.Scene,
     private readonly dna: BossDNA,
+    private readonly source: BossSource,
     actions: DebugActions
   ) {
     this.info = scene.add.text(8, 100, '', {
       fontFamily: 'monospace',
       fontSize: '12px',
-      color: '#d7ff32',
+      color: PALETTE_CSS.green,
       backgroundColor: 'rgba(0,0,0,.68)',
       padding: { x: 5, y: 4 }
     }).setDepth(300);
@@ -42,15 +46,15 @@ export class DebugOverlay {
       ['DNA', () => { this.showDna = !this.showDna; this.dnaText.setVisible(this.showDna); }]
     ] as const;
     controls.forEach(([label, action], index) => {
-      scene.add.text(8 + index * 81, 188, label, {
+      scene.add.text(8 + index * 81, 258, label, {
         fontFamily: 'monospace',
         fontSize: '12px',
         color: '#071008',
-        backgroundColor: '#d7ff32',
+        backgroundColor: PALETTE_CSS.green,
         padding: { x: 5, y: 4 }
       }).setInteractive({ useHandCursor: true }).setDepth(300).on('pointerdown', action);
     });
-    this.dnaText = scene.add.text(8, 219, JSON.stringify(dna, null, 2), {
+    this.dnaText = scene.add.text(8, 289, JSON.stringify(dna, null, 2), {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#f4f7f2',
@@ -75,29 +79,40 @@ export class DebugOverlay {
     projectiles: ProjectileSystem,
     safeLane?: SafeLaneHint,
   ): void {
-    const baseline = face?.baseline;
-    const rawNeutral = face?.rawNeutral;
-    const smoothedNeutral = face?.neutral;
-    this.info.setText([
-      `FPS ${fps.toFixed(0)} | ${session.state} | ${pattern}`,
-      `HP ${session.bossHp} | EN ${session.energy.toFixed(1)} | L ${session.lives}`,
-      `VEL ${noxcat.speed.toFixed(0)} | SCALE ${noxcat.visual.scaleX.toFixed(2)},${noxcat.visual.scaleY.toFixed(2)}`,
-      `NEU RAW ${rawNeutral == null ? '--' : rawNeutral.toFixed(0)} | EMA ${smoothedNeutral == null ? '--' : smoothedNeutral.toFixed(1)}`,
-      `BASE ${baseline == null ? '--' : `${baseline.smile.toFixed(2)}/${baseline.jawOpen.toFixed(2)}/${baseline.browUp.toFixed(2)}/${baseline.eyeWide.toFixed(2)}`}`,
-      `FACE ${face == null ? '--' : `${face.mode} ${face.inferenceMs.toFixed(1)}ms`} | ${face?.faceFound ? 'FOUND' : 'LOST'}`,
-      `SEED ${this.dna.seed}`
-    ]);
-    this.hitboxGraphics.clear();
+    const now = this.info.scene.time.now;
+    if (now >= this.nextInfoUpdateMs) {
+      this.nextInfoUpdateMs = now + 125;
+      const baseline = face?.baseline;
+      const rawNeutral = face?.rawNeutral;
+      const smoothedNeutral = face?.neutral;
+      const transitionHistory = session.transitions.slice(-4);
+      const latestTransition = transitionHistory.at(-1);
+      const transitionPath = transitionHistory.length === 0
+        ? '--'
+        : [transitionHistory[0]?.from, ...transitionHistory.map(({ to }) => to)].join('>');
+      this.info.setText([
+        `FPS ${fps.toFixed(0)} | ${session.state} | ${pattern}`,
+        `HP ${session.bossHp} | EN ${session.energy.toFixed(1)} | L ${session.lives}`,
+        `VEL ${noxcat.speed.toFixed(0)} | SCALE ${noxcat.visual.scaleX.toFixed(2)},${noxcat.visual.scaleY.toFixed(2)}`,
+        `NEU RAW ${rawNeutral == null ? '--' : rawNeutral.toFixed(0)} | EMA ${smoothedNeutral == null ? '--' : smoothedNeutral.toFixed(1)}`,
+        `BASE ${baseline == null ? '--' : `${baseline.smile.toFixed(2)}/${baseline.jawOpen.toFixed(2)}/${baseline.browUp.toFixed(2)}/${baseline.eyeWide.toFixed(2)}`}`,
+        `FACE ${face == null ? '--' : `${face.mode} ${face.inferenceMs.toFixed(1)}ms`} | ${face?.faceFound ? 'FOUND' : 'LOST'}`,
+        `SEED ${this.dna.seed} | SOURCE ${this.source.toUpperCase()}`,
+        `TX PATH ${transitionPath}`,
+        `TX LAST ${latestTransition == null ? '--' : `${latestTransition.reason ?? 'unspecified'} @${(latestTransition.elapsedMs / 1000).toFixed(1)}s`}`,
+      ]);
+    }
     if (!this.showHitboxes) return;
+    this.hitboxGraphics.clear();
     if (safeLane?.axis === 'vertical') {
-      this.hitboxGraphics.lineStyle(2, 0x53c7ff, 0.72).strokeRect(
+      this.hitboxGraphics.lineStyle(2, PALETTE.green, 0.72).strokeRect(
         safeLane.center - safeLane.halfWidth,
         402,
         safeLane.halfWidth * 2,
         492,
       );
     } else if (safeLane) {
-      this.hitboxGraphics.lineStyle(2, 0x53c7ff, 0.72).strokeRect(
+      this.hitboxGraphics.lineStyle(2, PALETTE.green, 0.72).strokeRect(
         22,
         safeLane.center - safeLane.halfWidth,
         496,
@@ -105,21 +120,26 @@ export class DebugOverlay {
       );
     }
     for (const projectile of projectiles.activeProjectiles()) {
-      const colour = projectile.friendly ? 0x53c7ff : projectile.isDamage ? 0xff5c7a : 0xffffff;
+      // Far-depth cards are visual-only until they reach contact depth. Do
+      // not draw a fake collider at their authored simulation coordinate.
+      if (!projectile.collisionActive) continue;
+      const colour = projectile.friendly ? PALETTE.green : projectile.isDamage ? PALETTE.midGray : PALETTE.white;
+      const polygon = projectile.collisionPolygon;
       this.hitboxGraphics.lineStyle(2, colour, 0.8)
-        .strokeCircle(projectile.x, projectile.y, projectile.radius)
+        .strokePoints([...polygon, polygon[0]!], true)
         .lineBetween(
-          projectile.x,
-          projectile.y,
-          projectile.x + projectile.vx * 0.22,
-          projectile.y + projectile.vy * 0.22,
+          projectile.collisionCenterX,
+          projectile.collisionCenterY,
+          projectile.collisionCenterX + projectile.vx * 0.22,
+          projectile.collisionCenterY + projectile.vy * 0.22,
         );
     }
     for (const beam of projectiles.activeBeams()) {
-      this.hitboxGraphics.lineStyle(2, beam.telegraphMs > 0 ? 0xd7ff32 : 0xff5c7a, 0.8)
+      this.hitboxGraphics.lineStyle(2, beam.telegraphMs > 0 ? PALETTE.green : PALETTE.midGray, 0.8)
         .strokeRect(0, beam.y - beam.height / 2, 540, beam.height);
     }
-    this.hitboxGraphics.lineStyle(2, 0xff5c7a, 0.9).strokeCircle(noxcat.x, noxcat.y, 18);
-    this.hitboxGraphics.lineStyle(2, 0xd7ff32, 0.65).strokeCircle(noxcat.x, noxcat.y, 43);
+    const noxcatPolygon = noxcat.collisionPolygon();
+    this.hitboxGraphics.lineStyle(2, PALETTE.white, 0.9)
+      .strokePoints([...noxcatPolygon, noxcatPolygon[0]!], true);
   }
 }

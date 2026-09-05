@@ -1,11 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <title>NOXCAT: FEEL NOTHING</title>
-  <rect width="64" height="64" rx="14" fill="#91D500"/>
-  <path
-    d="M32 176 C21 176 15 172 11 164 C6 154 6 139 7 124 C7 108 12 92 22 76 C18 63 14 44 15 33 C16 26 20 24 27 27 C38 31 47 38 55 45 C61 49 65 52 69 53 C73 49 76 46 79 43 C79 30 78 14 82 9 C85 5 89 7 95 12 C104 21 114 36 124 51 C126 55 128 58 131 60 C154 65 174 78 186 96 C194 108 197 122 196 138 C196 154 189 166 178 172 C174 176 168 176 160 176 L32 176Z"
-    transform="translate(4 7) scale(.28)"
-    fill="#101820"
-  />
-  <ellipse cx="17" cy="36" rx="2.2" ry="5" fill="#F6F6F6"/>
-  <ellipse cx="25" cy="32" rx="2.4" ry="5.5" fill="#F6F6F6"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">NOXCAT: FEEL NOTHING</title>
+  <!-- Full-bleed neutral ground keeps the foreground inside a maskable safe zone. -->
+  <rect width="64" height="64" fill="#DAD9D7"/>
+  <g id="noxcat-game-character" transform="translate(8 9) scale(.24)">
+    <path
+      id="flat-bun-body"
+      d="M32 176 C21 176 15 172 11 164 C6 154 6 139 7 124 C7 108 12 92 22 76 C18 63 14 44 15 33 C16 26 20 24 27 27 C38 31 47 38 55 45 C61 49 65 52 69 53 C73 49 76 46 79 43 C79 30 78 14 82 9 C85 5 89 7 95 12 C104 21 114 36 124 51 C126 55 128 58 131 60 C154 65 174 78 186 96 C194 108 197 122 196 138 C196 154 189 166 178 172 C174 176 168 176 160 176 L32 176Z"
+      fill="#101820"
+    />
+    <g id="forehead-goggles" stroke="#B2B2B2" stroke-width="6">
+      <path d="M19 71 L128 51" fill="none" stroke="#B2B2B2" stroke-width="7"/>
+      <rect x="31" y="54" width="39" height="24" rx="7" transform="rotate(-8 50.5 66)" fill="#91D500"/>
+      <rect x="76" y="46" width="39" height="24" rx="7" transform="rotate(-8 95.5 58)" fill="#91D500"/>
+      <path d="M69 61 L77 59" fill="none" stroke-linecap="round"/>
+    </g>
+    <g id="green-eyes" fill="#91D500">
+      <ellipse cx="48" cy="105" rx="10" ry="18" transform="rotate(-7 48 105)"/>
+      <ellipse cx="78" cy="92" rx="11" ry="19" transform="rotate(-7 78 92)"/>
+    </g>
+  </g>
 </svg>

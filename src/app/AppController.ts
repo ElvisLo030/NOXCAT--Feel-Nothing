@@ -19,11 +19,12 @@ export class AppController {
   private faceScore: FaceScoreUpdate | null = null;
   private latestBoss: BossApiResult | null = null;
   private latestAnnoyance = '需求一直改';
-  private wantsCamera = false;
+  private wantsCamera = true;
   private soundEnabled = true;
   private gogglesVisible = true;
   private generation = 0;
   private faceActivityDetectedCount = 0;
+  private pendingBattleStatus = '';
   private readonly faceTestProbeEnabled = (() => {
     const params = new URLSearchParams(window.location.search);
     return import.meta.env.DEV && params.get('debug') === '1' && params.get('faceTest') === '1';
@@ -40,7 +41,8 @@ export class AppController {
     this.showStartScreen();
   }
 
-  private showStartScreen(): void {
+  private showStartScreen(restoreFocus = false): void {
+    this.root.classList.remove('battle-active');
     this.generation += 1;
     this.destroyGame();
     void this.stopFace();
@@ -49,26 +51,21 @@ export class AppController {
         <div class="scanlines" aria-hidden="true"></div>
         <header class="brand-lockup">
           <p class="eyebrow">FEEL NOTHING. DO EVERYTHING.</p>
-          <h1 id="game-title" class="game-title">
+          <h1 id="game-title" class="game-title" tabindex="-1">
             <img class="official-wordmark" src="/assets/ip/noxcat/noxcat-logo-official-white.png" alt="NOXCAT" />
             <span>FEEL NOTHING</span>
           </h1>
           <p class="tagline">你的煩惱是 BOSS；<br><strong>NOXCAT 自己就是果凍砲彈。</strong></p>
         </header>
         <div class="start-visual" aria-hidden="true">
-          <div class="mini-crt"><i></i><b>×</b><b>×</b></div>
-          <div class="energy-ray ray-a"></div><div class="energy-ray ray-b"></div>
+          <img class="start-boss-ghost" src="/assets/boss/boss-office-base-v1.png" alt="" />
           <div class="css-noxcat"><span></span><span></span><i class="css-goggles"></i></div>
         </div>
         <form class="annoyance-form" data-testid="start-form">
           <label for="annoyance">今天最想打敗的是？</label>
-          <div class="input-shell"><input id="annoyance" maxlength="80" autocomplete="off" inputmode="text" placeholder="輸入今天最煩的事…" /></div>
-          <div class="quick-options" aria-label="快速選項"></div>
-          <label class="toggle-row">
-            <input id="camera-enabled" type="checkbox" />
-            <span class="toggle" aria-hidden="true"></span>
-            <span><b>啟用面無表情模式</b><small>使用前鏡頭，影像僅在裝置上處理</small></span>
-          </label>
+          <div class="input-shell"><input id="annoyance" name="annoyance" autocomplete="off" inputmode="text" aria-describedby="annoyance-help" placeholder="輸入今天最煩的事…" /></div>
+          <span id="annoyance-help" class="sr-only">最多輸入 80 個 Unicode 字元；留白時會使用「需求一直改」。</span>
+          <div class="quick-options" role="group" aria-label="快速選項"></div>
           <div class="secondary-options">
             <label class="accessory-toggle">
               <input id="goggles-enabled" data-testid="goggles-enabled" type="checkbox"${this.gogglesVisible ? ' checked' : ''} />
@@ -78,7 +75,6 @@ export class AppController {
             <label class="sound-row"><input id="sound-enabled" type="checkbox" checked /> 音效開啟</label>
           </div>
           <button class="primary-button" type="submit" data-testid="generate-boss">生成我的 BOSS <span>→</span></button>
-          <p class="privacy-note">無 API 或斷網仍可遊玩・不需登入</p>
         </form>
       </main>
       <div class="landscape-warning" role="status"><strong>請轉回直式</strong><span>果凍砲彈需要垂直戰場</span></div>
@@ -92,6 +88,14 @@ export class AppController {
       gogglesPreview.hidden = !gogglesInput.checked;
     };
     gogglesInput.addEventListener('change', syncGogglesPreview);
+    input.addEventListener('input', () => {
+      const characters = Array.from(input.value);
+      if (characters.length > 80) input.value = characters.slice(0, 80).join('');
+      quickOptions.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
+        chip.classList.remove('selected');
+        chip.setAttribute('aria-pressed', 'false');
+      });
+    });
     syncGogglesPreview();
     for (const option of QUICK_ANNOYANCES) {
       const button = document.createElement('button');
@@ -99,10 +103,15 @@ export class AppController {
       button.className = 'chip';
       button.textContent = option;
       button.dataset.testid = `quick-${option}`;
+      button.setAttribute('aria-pressed', 'false');
       button.addEventListener('click', () => {
         input.value = option;
-        quickOptions.querySelectorAll('.chip').forEach((chip) => chip.classList.remove('selected'));
+        quickOptions.querySelectorAll<HTMLButtonElement>('.chip').forEach((chip) => {
+          chip.classList.remove('selected');
+          chip.setAttribute('aria-pressed', 'false');
+        });
         button.classList.add('selected');
+        button.setAttribute('aria-pressed', 'true');
       });
       quickOptions.append(button);
     }
@@ -110,11 +119,16 @@ export class AppController {
     requireElement<HTMLFormElement>(this.root, '.annoyance-form').addEventListener('submit', (event) => {
       event.preventDefault();
       this.latestAnnoyance = input.value.trim() || '需求一直改';
-      this.wantsCamera = requireElement<HTMLInputElement>(this.root, '#camera-enabled').checked;
+      // Neutral mode is the standard flow. Camera access is still requested
+      // only after the player reads the on-device privacy disclosure.
+      this.wantsCamera = true;
       this.soundEnabled = requireElement<HTMLInputElement>(this.root, '#sound-enabled').checked;
       this.gogglesVisible = gogglesInput.checked;
       void this.compileBoss();
     });
+    if (restoreFocus) {
+      requireElement<HTMLElement>(this.root, '#game-title').focus({ preventScroll: true });
+    }
   }
 
   private async compileBoss(): Promise<void> {
@@ -128,28 +142,31 @@ export class AppController {
   }
 
   private showLoadingScreen(): void {
+    this.root.classList.remove('battle-active');
     this.root.innerHTML = `
-      <main class="screen loading-screen" aria-live="polite">
+      <main class="screen loading-screen" aria-live="polite" aria-busy="true" aria-labelledby="loading-title">
         <div class="compiler-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <p class="eyebrow">BOSS COMPILER v1.0</p>
-        <h2>AI 正在把煩惱<br>編譯成 BOSS…</h2>
+        <h2 id="loading-title" tabindex="-1">AI 正在把煩惱<br>編譯成 BOSS…</h2>
         <div class="compile-bar"><i></i></div>
         <p class="loading-copy">只允許安全、已實作且可重現的攻擊參數</p>
       </main>
     `;
+    requireElement<HTMLElement>(this.root, '#loading-title').focus({ preventScroll: true });
   }
 
   private showCameraConsent(message = ''): void {
+    this.root.classList.remove('battle-active');
     this.root.innerHTML = `
-      <main class="screen camera-screen">
-        <p class="eyebrow">OPTIONAL MODE</p>
-        <h2>面無表情加成</h2>
+      <main class="screen camera-screen" aria-labelledby="camera-title" aria-describedby="camera-privacy">
+        <p class="eyebrow">ON-DEVICE MODE</p>
+        <h2 id="camera-title" tabindex="-1">面無表情模式</h2>
         <div class="camera-glyph" aria-hidden="true"><span>• •</span></div>
-        <p class="camera-copy">鏡頭畫面不會上傳、不會錄影，只用來估算笑、張嘴、抬眉等<strong>可見動作</strong>。</p>
+        <p id="camera-privacy" class="camera-copy">此模式預設啟用。鏡頭畫面不會上傳、不會錄影，只用來估算笑、張嘴、抬眉等<strong>可見動作</strong>。</p>
         <p class="status-message" role="status"></p>
         <div class="camera-actions">
-          <button class="primary-button" data-testid="start-calibration">開始 2 秒校正</button>
-          <button class="text-button" data-testid="skip-camera">略過相機</button>
+          <button type="button" class="primary-button" data-testid="start-calibration">開始 2 秒校正</button>
+          <button type="button" class="text-button" data-testid="skip-camera">略過相機</button>
         </div>
       </main>
     `;
@@ -159,6 +176,7 @@ export class AppController {
       this.wantsCamera = false;
       void this.stopFace().then(() => this.latestBoss && this.launchBattle(this.latestBoss));
     });
+    requireElement<HTMLElement>(this.root, '#camera-title').focus({ preventScroll: true });
   }
 
   private async startCalibration(): Promise<void> {
@@ -199,33 +217,47 @@ export class AppController {
   private continueWithoutCamera(message: string): void {
     this.wantsCamera = false;
     this.root.innerHTML = `
-      <main class="screen camera-screen" aria-live="polite">
+      <main class="screen camera-screen" aria-live="polite" aria-labelledby="camera-fallback-title">
         <p class="eyebrow">CAMERA OPTIONAL</p>
-        <h2>標準模式準備完成</h2>
+        <h2 id="camera-fallback-title" tabindex="-1">標準模式準備完成</h2>
         <div class="camera-glyph" aria-hidden="true"><span>• •</span></div>
         <p class="status-message" role="status"></p>
+        <button type="button" class="primary-button continue-standard" data-testid="continue-standard">繼續標準模式</button>
       </main>
     `;
     setSafeText(requireElement(this.root, '.status-message'), message);
-    window.setTimeout(() => this.latestBoss && this.launchBattle(this.latestBoss), 850);
+    requireElement<HTMLElement>(this.root, '#camera-fallback-title').focus({ preventScroll: true });
+    let continued = false;
+    const continueBattle = (): void => {
+      if (continued || !this.latestBoss) return;
+      continued = true;
+      this.pendingBattleStatus = message;
+      this.launchBattle(this.latestBoss);
+    };
+    requireElement<HTMLButtonElement>(this.root, '[data-testid="continue-standard"]')
+      .addEventListener('click', continueBattle);
+    window.setTimeout(continueBattle, 2_200);
   }
 
   private showCalibrationScreen(): void {
     this.root.innerHTML = `
-      <main class="screen calibration-screen">
+      <main class="screen calibration-screen" aria-labelledby="calibration-title">
         <p class="eyebrow">ON-DEVICE CALIBRATION</p>
-        <div class="calibration-ring" style="--progress:0"><div class="css-face">• •</div></div>
-        <h2>自然看向鏡頭</h2>
+        <div class="calibration-ring" style="--progress:0" role="progressbar" aria-label="相機校正進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="css-face" aria-hidden="true">• •</div></div>
+        <h2 id="calibration-title" tabindex="-1">自然看向鏡頭</h2>
         <p>校正中 <strong data-testid="calibration-progress">0%</strong></p>
         <small>請保持自然即可，不是在判斷你的情緒。</small>
       </main>
     `;
+    requireElement<HTMLElement>(this.root, '#calibration-title').focus({ preventScroll: true });
   }
 
   private updateCalibrationProgress(progress: number, validSamples: number): void {
     const ring = this.root.querySelector<HTMLElement>('.calibration-ring');
     const label = this.root.querySelector<HTMLElement>('[data-testid="calibration-progress"]');
     ring?.style.setProperty('--progress', String(progress));
+    ring?.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+    ring?.setAttribute('aria-valuetext', `${Math.round(progress * 100)}%，有效樣本 ${validSamples}`);
     if (label) label.textContent = `${Math.round(progress * 100)}% · ${validSamples}`;
   }
 
@@ -261,8 +293,10 @@ export class AppController {
 
   private launchBattle(result: BossApiResult): void {
     this.destroyGame();
+    this.root.classList.add('battle-active');
     this.root.innerHTML = `
       <main class="battle-shell" aria-label="NOXCAT Boss 戰">
+        <p class="sr-only" role="status" data-battle-status></p>
         <div id="game-host" data-testid="game-host"></div>
         <div class="battle-frame" aria-hidden="true"></div>
       </main>
@@ -276,6 +310,14 @@ export class AppController {
       gogglesVisible: this.gogglesVisible,
       faceProvider: () => this.faceScore
     });
+    const pendingStatus = this.pendingBattleStatus;
+    this.pendingBattleStatus = '';
+    if (pendingStatus) {
+      window.setTimeout(() => {
+        const status = this.root.querySelector<HTMLElement>('[data-battle-status]');
+        if (status) setSafeText(status, pendingStatus);
+      }, 0);
+    }
     this.game = new Phaser.Game(createGameConfig('game-host'));
   }
 
@@ -286,12 +328,13 @@ export class AppController {
 
   private showResultScreen(result: BattleResultDetail): void {
     this.destroyGame();
+    this.root.classList.remove('battle-active');
     const snapshot = result.snapshot;
     this.root.innerHTML = `
-      <main class="screen result-screen ${result.won ? 'won' : 'lost'}">
+      <main class="screen result-screen ${result.won ? 'won' : 'lost'}" aria-labelledby="result-title">
         <p class="eyebrow">ROUND COMPLETE</p>
-        <div class="grade" aria-label="評級"></div>
-        <h2 data-testid="result-title"></h2>
+        <p class="grade"><span class="sr-only">評級 </span><span data-grade-value></span></p>
+        <h2 id="result-title" tabindex="-1" data-testid="result-title"></h2>
         <h3 class="result-boss"></h3>
         <p class="result-line"></p>
         <dl class="stats-grid">
@@ -302,12 +345,12 @@ export class AppController {
         </dl>
         <div class="neutral-result" hidden><span>AVG NEUTRAL</span><b></b><small></small></div>
         <div class="result-actions">
-          <button class="primary-button" data-testid="retry">再挑戰一次</button>
-          <button class="secondary-button" data-testid="change-annoyance">換一個煩惱</button>
+          <button type="button" class="primary-button" data-testid="retry">再挑戰一次</button>
+          <button type="button" class="secondary-button" data-testid="change-annoyance">換一個煩惱</button>
         </div>
       </main>
     `;
-    setSafeText(requireElement(this.root, '.grade'), result.grade);
+    setSafeText(requireElement(this.root, '[data-grade-value]'), result.grade);
     setSafeText(requireElement(this.root, '[data-testid="result-title"]'), result.won ? 'BOSS DEFEATED' : snapshot.lives === 0 ? 'NOXCAT OVERLOADED' : 'BOSS ESCAPED');
     setSafeText(requireElement(this.root, '.result-boss'), result.bossName);
     setSafeText(requireElement(this.root, '.result-line'), result.resultLine);
@@ -321,12 +364,13 @@ export class AppController {
       setSafeText(requireElement(neutral, 'b'), `${Math.round(snapshot.averageNeutral)}%`);
       setSafeText(requireElement(neutral, 'small'), `最高 ${Math.round(snapshot.highestNeutral ?? snapshot.averageNeutral)}%`);
     }
+    requireElement<HTMLElement>(this.root, '#result-title').focus({ preventScroll: true });
     requireElement<HTMLButtonElement>(this.root, '[data-testid="retry"]').addEventListener('click', () => {
       if (!this.latestBoss) return;
       if (this.wantsCamera) this.showCameraConsent();
       else this.launchBattle(this.latestBoss);
     });
-    requireElement<HTMLButtonElement>(this.root, '[data-testid="change-annoyance"]').addEventListener('click', () => this.showStartScreen());
+    requireElement<HTMLButtonElement>(this.root, '[data-testid="change-annoyance"]').addEventListener('click', () => this.showStartScreen(true));
   }
 
   private destroyGame(): void {

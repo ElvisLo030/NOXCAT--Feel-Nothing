@@ -1,12 +1,17 @@
 import Phaser from 'phaser';
+import { PALETTE } from '../../theme/palette';
+import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { Noxcat } from '../entities/Noxcat';
 import { Projectile, type ProjectileConfig } from '../entities/Projectile';
-import { PROJECTILE_RECYCLE_TOP } from '../patterns/fairness';
 import {
   BOSS_PROJECTILE_ORIGIN,
   projectTunnelLane,
   TUNNEL_RADIUS_Y,
 } from './ProjectileDepth';
+import {
+  isBeyondProjectileExitBoundary,
+  PROJECTILE_MAX_LIFETIME_MS,
+} from './ProjectileExitMotion';
 
 export interface BeamHazard {
   id: number;
@@ -25,6 +30,7 @@ export class ProjectileSystem {
   private readonly pool: Projectile[] = [];
   private readonly beams: BeamHazard[] = [];
   private beamId = 0;
+  private reducedVisualQuality = false;
 
   constructor(private readonly scene: Phaser.Scene) {
     for (let index = 0; index < 54; index += 1) this.pool.push(new Projectile(scene));
@@ -41,16 +47,17 @@ export class ProjectileSystem {
       BOSS_PROJECTILE_ORIGIN.y,
       540,
       5,
-      0xd7ff32,
+      PALETTE.green,
       0.32,
     )
       .setStrokeStyle(1, 0xffffff, 0.75)
       .setScale(0.04, 0.25)
-      .setDepth(6);
-    const beam = this.scene.add.rectangle(270, y, 540, 34, 0xd7ff32, 0.88)
+      .setDepth(6)
+      .setVisible(telegraphMs > 0);
+    const beam = this.scene.add.rectangle(270, y, 540, 34, PALETTE.green, 0.88)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(34)
-      .setVisible(false);
+      .setVisible(telegraphMs <= 0);
     const hazard: BeamHazard = {
       id: this.beamId,
       y,
@@ -72,13 +79,25 @@ export class ProjectileSystem {
     for (const projectile of this.pool) {
       if (!projectile.active) continue;
       projectile.step(deltaSeconds, player.x, player.y, timeScale);
-      // Paper rain intentionally starts as far back as y=-235 so its small,
-      // Boss-origin projection is visible before it flies toward the camera.
-      if (projectile.x < -180 || projectile.x > 720 || projectile.y < PROJECTILE_RECYCLE_TOP || projectile.y > 1140) {
+      // Far-depth authored coordinates can begin outside the arena while their
+      // projected card is visible at the Boss. Cull from the visible centre,
+      // and only after the whole card has cleared the screen.
+      if (
+        isBeyondProjectileExitBoundary(
+          { x: projectile.visibleCenterX, y: projectile.visibleCenterY },
+          this.scene.cameras.main.worldView.width || GAME_WIDTH,
+          this.scene.cameras.main.worldView.height || GAME_HEIGHT,
+          undefined,
+          {
+            x: this.scene.cameras.main.worldView.left,
+            y: this.scene.cameras.main.worldView.top,
+          },
+        )
+        || projectile.ageMs >= PROJECTILE_MAX_LIFETIME_MS
+      ) {
         projectile.recycle();
       }
     }
-
     const deltaMs = deltaSeconds * 1000;
     for (let index = this.beams.length - 1; index >= 0; index -= 1) {
       const hazard = this.beams[index];
@@ -127,6 +146,10 @@ export class ProjectileSystem {
     return this.beams;
   }
 
+  get isVisualQualityReduced(): boolean {
+    return this.reducedVisualQuality;
+  }
+
   clearDangerous(fade = true): void {
     for (const projectile of this.pool) {
       if (!projectile.active || projectile.friendly) continue;
@@ -148,10 +171,23 @@ export class ProjectileSystem {
     }
   }
 
-  setVisualQuality(low: boolean): void {
+  /** Let a completed wave leave frame naturally instead of mass-fading it. */
+  releaseDangerousForExit(): void {
     for (const projectile of this.pool) {
-      if (projectile.active) projectile.setAlpha(low ? 0.86 : 1);
+      if (!projectile.active || projectile.friendly || !projectile.isDamage) continue;
+      projectile.releaseForOffscreenExit();
     }
+    // Beams have no outbound body to animate; retire any defensive remainder
+    // so RECOVERY cannot retain an invisible collision strip.
+    for (const hazard of this.beams.splice(0)) {
+      hazard.warning.destroy();
+      hazard.beam.destroy();
+    }
+  }
+
+  setVisualQuality(low: boolean): void {
+    this.reducedVisualQuality = low;
+    for (const projectile of this.pool) projectile.setVisualQuality(low);
   }
 
   destroy(): void {

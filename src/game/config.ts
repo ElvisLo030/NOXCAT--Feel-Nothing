@@ -7,6 +7,9 @@ export function createGameConfig(parent: string): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.AUTO,
     parent,
+    // These are the authored-world defaults. Scale.RESIZE changes the canvas
+    // backing dimensions to the live viewport while BattleScene keeps the
+    // render camera uniformly scaled.
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     backgroundColor: '#070a08',
@@ -19,8 +22,11 @@ export function createGameConfig(parent: string): Phaser.Types.Core.GameConfig {
       powerPreference: 'high-performance'
     },
     scale: {
-      mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
+      // The canvas follows its parent exactly. BattleScene applies a uniform
+      // camera zoom and exposes extra world space for non-9:16 phones, which
+      // removes letterboxing without distorting game art.
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.NO_CENTER,
       width: GAME_WIDTH,
       height: GAME_HEIGHT
     },

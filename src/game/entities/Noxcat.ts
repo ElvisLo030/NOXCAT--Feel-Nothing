@@ -1,8 +1,11 @@
 import Phaser from 'phaser';
 import { AssetRegistry } from '../../assets/AssetRegistry';
+import { sampleNoxcatBunOutline } from '../../assets/noxcatDesign';
+import { PALETTE } from '../../theme/palette';
 import {
   calculateJellyPose,
   createReturnArc,
+  noxcatPerspectiveScale,
   releasePulse,
   RELEASE_PULSE_DURATION_SECONDS,
   sampleReturnArc,
@@ -20,6 +23,7 @@ import {
   POSITION_DAMPING,
   POSITION_STIFFNESS,
 } from '../constants';
+import type { CollisionPoint } from '../systems/CollisionMath';
 
 export type NoxcatMode = 'follow' | 'aim' | 'launched' | 'impact' | 'returning';
 
@@ -27,16 +31,24 @@ export interface NoxcatVisualSnapshot {
   mode: NoxcatMode;
   x: number;
   y: number;
+  speed: number;
   isDragging: boolean;
   scaleX: number;
   scaleY: number;
+  depthScale: number;
   eyeX: number;
   activeGhosts: number;
   activeDroplets: number;
+  ghostLimit: number;
+  dropletLimit: number;
   glowLayerCount: number;
   glowOuterAlpha: number;
   bodyDisplayWidth: number;
   bodyDisplayHeight: number;
+  eyeDisplayWidth: number;
+  eyeDisplayHeight: number;
+  goggleDisplayWidth: number;
+  goggleDisplayHeight: number;
   goggleVisible: boolean;
   hitRadius: number;
 }
@@ -51,16 +63,17 @@ interface GooDroplet {
 
 // Compact enough to leave readable dodge space on a 390px-wide phone while
 // retaining the official logo silhouette. The fixed hit circle stays separate.
-const BODY_DISPLAY_WIDTH = 158;
-const BODY_DISPLAY_HEIGHT = 145;
-const EYE_DISPLAY_WIDTH = 70;
-const EYE_DISPLAY_HEIGHT = 58;
-const EYE_BASE_X = 34;
-const FACE_BASE_Y = -5;
+const BODY_DISPLAY_WIDTH = 138;
+const BODY_DISPLAY_HEIGHT = 126;
+const EYE_DISPLAY_WIDTH = 57;
+const EYE_DISPLAY_HEIGHT = 48;
+const EYE_BASE_X = 30;
+const FACE_BASE_Y = -4;
 const EYE_TEXTURE_WIDTH = 52;
 const EYE_TEXTURE_HEIGHT = 44;
 const DROPLET_COUNT = 6;
 const GHOST_COUNT = 8;
+const COLLISION_OUTLINE = sampleNoxcatBunOutline(8);
 
 export class Noxcat extends Phaser.GameObjects.Container {
   readonly hitRadius = PLAYER_HIT_RADIUS;
@@ -88,6 +101,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
   private sloshVelocityY = 0;
   private ghostClock = 0;
   private dropletCooldown = 0;
+  private ghostLimit = GHOST_COUNT;
   private dropletLimit = DROPLET_COUNT;
   private lastDirection = -1;
   private previousVelocityAngle = 0;
@@ -120,7 +134,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
       const layer = scene.add.image(0, 0, AssetRegistry.key('noxcat.body'))
         .setOrigin(0.5)
         .setDisplaySize(BODY_DISPLAY_WIDTH * scale, BODY_DISPLAY_HEIGHT * scale)
-        .setTintFill(0xd7ff32)
+        .setTintFill(PALETTE.green)
         .setAlpha(alpha);
       if (additive) layer.setBlendMode(Phaser.BlendModes.ADD);
       return layer;
@@ -148,11 +162,11 @@ export class Noxcat extends Phaser.GameObjects.Container {
       .setOrigin(0.5)
       .setDisplaySize(BODY_DISPLAY_WIDTH, BODY_DISPLAY_HEIGHT)
       .setAlpha(0)
-      .setTintFill(0xd7ff32)
+      .setTintFill(PALETTE.green)
       .setDepth(21));
 
     this.droplets = Array.from({ length: DROPLET_COUNT }, () => ({
-      display: scene.add.ellipse(x, y, 13, 7, 0xd7ff32, 1)
+      display: scene.add.ellipse(x, y, 13, 7, PALETTE.green, 1)
         .setStrokeStyle(1, 0xf3ffae, 0.5)
         .setDepth(23)
         .setAlpha(0)
@@ -177,16 +191,24 @@ export class Noxcat extends Phaser.GameObjects.Container {
       mode: this.mode,
       x: this.x,
       y: this.y,
+      speed: this.speed,
       isDragging: this.dragging,
       scaleX: this.visual.scaleX,
       scaleY: this.visual.scaleY,
+      depthScale: this.scaleX,
       eyeX: this.eyes.x,
       activeGhosts: this.ghosts.filter((ghost) => ghost.visible && ghost.alpha > 0.008).length,
       activeDroplets: this.droplets.filter((droplet) => droplet.display.visible).length,
+      ghostLimit: this.ghostLimit,
+      dropletLimit: this.dropletLimit,
       glowLayerCount: this.bodyGlowLayers.length,
       glowOuterAlpha: this.bodyGlowLayers[0]?.alpha ?? 0,
       bodyDisplayWidth: this.bodyImage.displayWidth,
       bodyDisplayHeight: this.bodyImage.displayHeight,
+      eyeDisplayWidth: this.eyes.displayWidth * Math.abs(this.visual.scaleX),
+      eyeDisplayHeight: this.eyes.displayHeight * Math.abs(this.visual.scaleY),
+      goggleDisplayWidth: this.goggles.displayWidth * Math.abs(this.visual.scaleX),
+      goggleDisplayHeight: this.goggles.displayHeight * Math.abs(this.visual.scaleY),
       goggleVisible: this.goggles.visible,
       hitRadius: this.hitRadius,
     };
@@ -194,6 +216,26 @@ export class Noxcat extends Phaser.GameObjects.Container {
 
   setGogglesVisible(visible: boolean): void {
     this.goggles.setVisible(visible);
+  }
+
+  /** Actual transformed SVG body outline used for document overlap checks. */
+  collisionPolygon(): readonly CollisionPoint[] {
+    const rootScale = Math.abs(this.scaleX);
+    const localScaleX = this.visual.scaleX;
+    const localScaleY = this.visual.scaleY;
+    const cosine = Math.cos(this.visual.rotation);
+    const sine = Math.sin(this.visual.rotation);
+    const flip = this.bodyImage.flipX ? -1 : 1;
+    return COLLISION_OUTLINE.map((point) => {
+      const localX = (point.x - 100) * (BODY_DISPLAY_WIDTH / 200) * flip * localScaleX;
+      const localY = (point.y - 92) * (BODY_DISPLAY_HEIGHT / 184) * localScaleY;
+      const rotatedX = localX * cosine - localY * sine;
+      const rotatedY = localX * sine + localY * cosine;
+      return {
+        x: this.x + rootScale * (this.visual.x + rotatedX),
+        y: this.y + rootScale * (this.visual.y + rotatedY),
+      };
+    });
   }
 
   beginDrag(): void {
@@ -314,6 +356,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
     this.scaleVelocityX = 0;
     this.scaleVelocityY = 0;
     this.visual.rotation = 0;
+    this.eyes.rotation = 0;
     this.visual.scaleX = this.impactHorizontal ? 0.5 : 1.5;
     this.visual.scaleY = this.impactHorizontal ? 1.5 : 0.5;
     this.keepEyesCrisp();
@@ -381,6 +424,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
     if (this.mode === 'launched') {
       this.x += this.launchVelocity.x * dt;
       this.y += this.launchVelocity.y * dt;
+      this.updatePerspectiveScale(dt);
       const pose = calculateJellyPose(this.launchVelocity, {
         maxSpeed: Math.max(1, this.launchVelocity.length()),
         stretchAmount: 0.52,
@@ -392,6 +436,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
     }
 
     if (this.mode === 'impact') {
+      this.updatePerspectiveScale(dt);
       this.impactElapsed += dt;
       const rebound = this.impactElapsed < 0.12;
       this.desiredScaleX = this.impactHorizontal
@@ -409,6 +454,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
     }
 
     if (this.mode === 'aim') {
+      this.updatePerspectiveScale(dt);
       this.visual.x = Phaser.Math.Linear(this.visual.x, 0, 1 - Math.exp(-18 * dt));
       this.visual.y = Phaser.Math.Linear(this.visual.y, 0, 1 - Math.exp(-18 * dt));
       this.updateEyes(this.aimPull01, dt);
@@ -420,6 +466,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
       const sample = sampleReturnArc(this.returnArc, this.returnElapsed);
       this.x = sample.x;
       this.y = sample.y;
+      this.updatePerspectiveScale(dt);
       this.velocity.set(sample.velocityX, sample.velocityY);
       const pose = calculateJellyPose(this.velocity, {
         maxSpeed: MAX_FOLLOW_SPEED,
@@ -432,6 +479,7 @@ export class Noxcat extends Phaser.GameObjects.Container {
     }
 
     this.integratePosition(dt);
+    this.updatePerspectiveScale(dt);
     this.visualVelocity.copy(this.velocity);
     const speed01 = Phaser.Math.Clamp(this.velocity.length() / MAX_FOLLOW_SPEED, 0, 1);
     if (this.dragging && this.gestureImpulse > speed01) {
@@ -450,11 +498,12 @@ export class Noxcat extends Phaser.GameObjects.Container {
   }
 
   setGhostQuality(count: number): void {
+    this.ghostLimit = Phaser.Math.Clamp(Math.floor(count), 0, GHOST_COUNT);
     this.ghosts.forEach((ghost, index) => {
-      const enabled = index < count;
+      const enabled = index < this.ghostLimit;
       ghost.setActive(enabled).setVisible(enabled && ghost.alpha > 0.01);
     });
-    this.dropletLimit = count >= 8 ? DROPLET_COUNT : 3;
+    this.dropletLimit = this.ghostLimit >= GHOST_COUNT ? DROPLET_COUNT : 3;
   }
 
   override destroy(fromScene?: boolean): void {
@@ -596,6 +645,15 @@ export class Noxcat extends Phaser.GameObjects.Container {
     );
   }
 
+  private updatePerspectiveScale(dt: number): void {
+    const targetScale = noxcatPerspectiveScale(this.y);
+    const response = 1 - Math.exp(-12 * dt);
+    const scale = Phaser.Math.Linear(this.scaleX, targetScale, response);
+    // The broad-phase hitRadius stays fixed; exact overlap uses collisionPolygon(),
+    // which includes this root scale and therefore matches the visible far cat.
+    this.setScale(scale);
+  }
+
   private updateEyes(speed01: number, dt: number): void {
     const targetEyeX = this.lastDirection * (EYE_BASE_X + speed01 * 6);
     this.eyes.x = Phaser.Math.Linear(this.eyes.x, targetEyeX, 1 - Math.exp(-13 * dt));
@@ -639,8 +697,8 @@ export class Noxcat extends Phaser.GameObjects.Container {
       .setRotation(this.visual.rotation)
       .setFlipX(this.bodyImage.flipX)
       .setDisplaySize(
-        BODY_DISPLAY_WIDTH * Math.max(0.62, this.visual.scaleX),
-        BODY_DISPLAY_HEIGHT * Math.max(0.62, this.visual.scaleY),
+        BODY_DISPLAY_WIDTH * this.scaleX * Math.max(0.62, this.visual.scaleX),
+        BODY_DISPLAY_HEIGHT * this.scaleY * Math.max(0.62, this.visual.scaleY),
       )
       .setAlpha(0.065)
       .setVisible(true);

@@ -48,6 +48,9 @@ export interface JellyPose {
 
 export const MAX_JELLY_LEAN_RADIANS = Math.PI / 10;
 export const RELEASE_PULSE_DURATION_SECONDS = 0.62;
+export const NOXCAT_FAR_SCALE = 0.42;
+export const NOXCAT_FAR_Y = 430;
+export const NOXCAT_NEAR_Y = 740;
 export const LAUNCH_BOUNCE_BOUNDS: LaunchBounds = {
   left: 30,
   right: 510,
@@ -56,6 +59,16 @@ export const LAUNCH_BOUNCE_BOUNDS: LaunchBounds = {
 };
 
 const SPRING_EPSILON = 1e-8;
+
+/**
+ * Scales the rendered rig along the floor perspective. Collision samples the
+ * same transformed bun outline every frame, so the smaller far cat and its
+ * interactive silhouette remain visually aligned.
+ */
+export function noxcatPerspectiveScale(y: number): number {
+  const depth = clamp((y - NOXCAT_FAR_Y) / (NOXCAT_NEAR_Y - NOXCAT_FAR_Y), 0, 1);
+  return NOXCAT_FAR_SCALE + (1 - NOXCAT_FAR_SCALE) * depth;
+}
 
 /**
  * Advances a scalar damped spring by an exact analytical step.

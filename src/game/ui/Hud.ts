@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import type { GameSessionSnapshot } from '../../state/GameSession';
-import { BOSS_MAX_HP, ENERGY_MAX } from '../constants';
+import { PALETTE, PALETTE_CSS } from '../../theme/palette';
+import { BOSS_MAX_HP, ENERGY_MAX, ROUND_DURATION_MS } from '../constants';
+import type { BattleViewportLayout } from '../systems/ViewportLayout';
 
 export class Hud {
   private readonly hearts: Phaser.GameObjects.Text;
@@ -12,12 +14,23 @@ export class Hud {
   private readonly timer: Phaser.GameObjects.Text;
   private readonly toast: Phaser.GameObjects.Text;
   private readonly stateLabel: Phaser.GameObjects.Text;
+  private bossBarX = 99;
+  private bossBarY = 66;
+  private energyBarX = 25;
+  private energyBarY = 901;
+  private bossRatio = 1;
+  private energyRatio = 0;
+  private lastLives = -1;
+  private lastSeconds = -1;
+  private lastNeutralText = '';
+  private lastBossPixels = -1;
+  private lastEnergyPixels = -1;
 
   constructor(scene: Phaser.Scene, bossName: string) {
     this.hearts = scene.add.text(25, 24, '♥ ♥ ♥', {
       fontFamily: 'Arial, sans-serif',
       fontSize: '28px',
-      color: '#d7ff32',
+      color: PALETTE_CSS.green,
       stroke: '#23300d',
       strokeThickness: 2
     }).setDepth(100);
@@ -34,15 +47,15 @@ export class Hud {
       fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
       fontSize: '16px',
       fontStyle: '800',
-      color: '#d7ff32'
+      color: PALETTE_CSS.green
     }).setDepth(100);
     this.neutralLabel = scene.add.text(514, 907, 'NEUTRAL --', {
       fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
       fontSize: '15px',
       fontStyle: '800',
-      color: '#d7ff32'
+      color: PALETTE_CSS.green
     }).setOrigin(1, 0.5).setDepth(100);
-    this.timer = scene.add.text(505, 27, '75', {
+    this.timer = scene.add.text(505, 27, String(Math.ceil(ROUND_DURATION_MS / 1000)), {
       fontFamily: 'monospace',
       fontSize: '22px',
       fontStyle: '700',
@@ -53,7 +66,7 @@ export class Hud {
       fontSize: '24px',
       fontStyle: '900',
       color: '#071008',
-      backgroundColor: '#d7ff32',
+      backgroundColor: PALETTE_CSS.green,
       padding: { x: 16, y: 8 },
       align: 'center'
     }).setOrigin(0.5).setDepth(130).setAlpha(0);
@@ -61,16 +74,62 @@ export class Hud {
       fontFamily: 'Inter, Noto Sans TC, system-ui, sans-serif',
       fontSize: '22px',
       fontStyle: '900',
-      color: '#d7ff32'
+      color: PALETTE_CSS.green
     }).setOrigin(0.5).setDepth(100);
   }
 
   update(snapshot: GameSessionSnapshot, neutral: number | null): void {
-    this.hearts.setText(Array.from({ length: 3 }, (_, index) => index < snapshot.lives ? '♥' : '♡').join(' '));
-    this.timer.setText(String(Math.ceil(snapshot.remainingMs / 1000)).padStart(2, '0'));
-    this.neutralLabel.setText(neutral === null ? 'NEUTRAL --' : `NEUTRAL ${Math.round(neutral)}%`);
-    this.drawBossBar(snapshot.bossHp / BOSS_MAX_HP);
-    this.drawEnergyBar(snapshot.energy / ENERGY_MAX);
+    if (snapshot.lives !== this.lastLives) {
+      this.lastLives = snapshot.lives;
+      this.hearts.setText(Array.from(
+        { length: 3 },
+        (_, index) => index < snapshot.lives ? '♥' : '♡',
+      ).join(' '));
+    }
+    const seconds = Math.ceil(snapshot.remainingMs / 1000);
+    if (seconds !== this.lastSeconds) {
+      this.lastSeconds = seconds;
+      this.timer.setText(String(seconds).padStart(2, '0'));
+    }
+    const neutralText = neutral === null ? 'NEUTRAL --' : `NEUTRAL ${Math.round(neutral)}%`;
+    if (neutralText !== this.lastNeutralText) {
+      this.lastNeutralText = neutralText;
+      this.neutralLabel.setText(neutralText);
+    }
+    const bossRatio = snapshot.bossHp / BOSS_MAX_HP;
+    const bossPixels = Math.round(bossRatio * 334);
+    if (bossPixels !== this.lastBossPixels) {
+      this.bossRatio = bossRatio;
+      this.lastBossPixels = bossPixels;
+      this.drawBossBar(bossRatio);
+    }
+    const energyRatio = snapshot.energy / ENERGY_MAX;
+    const energyPixels = Math.round(energyRatio * 302);
+    if (energyPixels !== this.lastEnergyPixels) {
+      this.energyRatio = energyRatio;
+      this.lastEnergyPixels = energyPixels;
+      this.drawEnergyBar(energyRatio);
+    }
+  }
+
+  relayout(view: BattleViewportLayout): void {
+    const left = view.left;
+    const right = view.right;
+    const top = view.top;
+    const bottom = view.bottom;
+    this.hearts.setPosition(left + 25, top + 24);
+    this.bossName.setPosition(view.centerX, top + 36);
+    this.timer.setPosition(right - 35, top + 27);
+    this.bossBarX = view.centerX - 171;
+    this.bossBarY = top + 66;
+    this.energyLabel.setPosition(left + 25, bottom - 86);
+    this.energyBarX = left + 25;
+    this.energyBarY = bottom - 59;
+    this.neutralLabel.setPosition(right - 26, bottom - 53);
+    this.stateLabel.setPosition(view.centerX, bottom - 114);
+    this.toast.setPosition(view.centerX, view.centerY + 40);
+    this.drawBossBar(this.bossRatio);
+    this.drawEnergyBar(this.energyRatio);
   }
 
   setStateMessage(message: string): void {
@@ -90,30 +149,35 @@ export class Hud {
     });
   }
 
+  clearFlash(): void {
+    this.toast.scene.tweens.killTweensOf(this.toast);
+    this.toast.setText('').setAlpha(0);
+  }
+
   setBossName(name: string): void {
     this.bossName.setText(name);
   }
 
   private drawBossBar(ratio: number): void {
-    const x = 99;
-    const y = 66;
+    const x = this.bossBarX;
+    const y = this.bossBarY;
     const width = 342;
     this.bossBar.clear();
     this.bossBar.fillStyle(0x0a0c0a, 0.95).fillRoundedRect(x, y, width, 19, 10);
-    this.bossBar.lineStyle(2, 0xd7ff32, 0.9).strokeRoundedRect(x, y, width, 19, 10);
-    if (ratio > 0) this.bossBar.fillStyle(0xd7ff32, 1).fillRoundedRect(x + 4, y + 4, (width - 8) * ratio, 11, 6);
+    this.bossBar.lineStyle(2, PALETTE.green, 0.9).strokeRoundedRect(x, y, width, 19, 10);
+    if (ratio > 0) this.bossBar.fillStyle(PALETTE.green, 1).fillRoundedRect(x + 4, y + 4, (width - 8) * ratio, 11, 6);
   }
 
   private drawEnergyBar(ratio: number): void {
-    const x = 25;
-    const y = 901;
+    const x = this.energyBarX;
+    const y = this.energyBarY;
     const width = 314;
     this.energyBar.clear();
     this.energyBar.fillStyle(0x0a0c0a, 0.95).fillRoundedRect(x, y, width, 31, 16);
-    this.energyBar.lineStyle(2, 0xd7ff32, 1).strokeRoundedRect(x, y, width, 31, 16);
+    this.energyBar.lineStyle(2, PALETTE.green, 1).strokeRoundedRect(x, y, width, 31, 16);
     if (ratio > 0) {
-      this.energyBar.fillStyle(0xd7ff32, 1).fillRoundedRect(x + 6, y + 6, Math.max(8, (width - 12) * ratio), 19, 10);
+      this.energyBar.fillStyle(PALETTE.green, 1).fillRoundedRect(x + 6, y + 6, Math.max(8, (width - 12) * ratio), 19, 10);
     }
-    this.energyLabel.setColor(ratio >= 1 ? '#ffffff' : '#d7ff32');
+    this.energyLabel.setColor(ratio >= 1 ? PALETTE_CSS.white : PALETTE_CSS.green);
   }
 }

@@ -47,6 +47,17 @@ describe('generateBoss OpenAI trust boundary', () => {
       max_output_tokens: 500,
       reasoning: { effort: 'minimal' },
       store: false,
+      text: {
+        format: expect.objectContaining({
+          type: 'json_schema',
+          name: 'boss_dna',
+          strict: true,
+          schema: expect.objectContaining({
+            type: 'object',
+            additionalProperties: false,
+          }),
+        }),
+      },
     }));
   });
 
@@ -84,6 +95,21 @@ describe('generateBoss OpenAI trust boundary', () => {
       client,
       requestId: 'sdk-error',
     })).resolves.toEqual({ source: 'fallback', boss: FALLBACK_BOSS });
+  });
+
+  it('never writes the untrusted annoyance into fallback logs', async () => {
+    const privateAnnoyance = 'PRIVATE-ANNOYANCE-DO-NOT-LOG';
+    const parse = vi.fn().mockRejectedValue(new Error('network unavailable'));
+    const client = { responses: { parse } } as unknown as OpenAI;
+
+    await generateBoss(privateAnnoyance, {
+      client,
+      requestId: 'privacy-check',
+    });
+
+    const messages = vi.mocked(console.info).mock.calls.flat().join(' ');
+    expect(messages).toContain('[boss:privacy-check] fallback');
+    expect(messages).not.toContain(privateAnnoyance);
   });
 
   it('uses fallback immediately when no API key or client is available', async () => {

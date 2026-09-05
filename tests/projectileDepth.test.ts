@@ -2,12 +2,69 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BOSS_PROJECTILE_ORIGIN,
+  calculateInboundProjectileTransform,
+  calculateProjectilePerspectiveQuad,
   calculateTunnelDepthPose,
   createTunnelTrajectory,
-  projectileStreakLength,
+  floorGridY,
   projectTunnelLane,
+  PROJECTILE_CONTACT_DEPTH,
+  radialNearPlaneVelocity,
   sampleTunnelProjection,
 } from '../src/game/systems/ProjectileDepth';
+import { planCommentCrossfire } from '../src/game/patterns/commentCrossfire';
+import { planClosingWalls } from '../src/game/patterns/closingWalls';
+import { planPaperRain } from '../src/game/patterns/paperRain';
+import {
+  planReturnableBurst,
+  RETURNABLE_OPENING_CLEAR_MS,
+} from '../src/game/patterns/returnableBurst';
+import { planRevisionHoming } from '../src/game/patterns/revisionHoming';
+import type { ProjectileConfig } from '../src/game/entities/Projectile';
+import { SeededRng } from '../src/utils/rng';
+
+function canThreatenLegalPlayerPosition(
+  point: { x: number; y: number },
+  projectileRadius: number,
+): boolean {
+  const nearestX = Math.min(494, Math.max(46, point.x));
+  const nearestY = Math.min(884, Math.max(430, point.y));
+  return Math.hypot(point.x - nearestX, point.y - nearestY) <= 18 + projectileRadius + 1e-6;
+}
+
+function verifyNearPlaneTraversal(config: ProjectileConfig): void {
+  const radius = config.radius ?? (config.kind === 'comment' ? 24 : 18);
+  const speed = Math.hypot(config.vx, config.vy);
+  const trajectory = createTunnelTrajectory(
+    { x: config.x, y: config.y },
+    { x: config.vx, y: config.vy },
+    radius,
+    config.perspectiveTarget,
+    config.perspectiveDurationMs,
+    config.perspectiveOrigin,
+  );
+  const nearVelocity = radialNearPlaneVelocity(trajectory, speed);
+  const projectionAtDepth = (depth: number) => sampleTunnelProjection(
+    trajectory,
+    {
+      x: trajectory.spawn.x
+        + (trajectory.approachPoint.x - trajectory.spawn.x) * depth,
+      y: trajectory.spawn.y
+        + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
+    },
+  );
+  const activeSamples = [0.8, 0.84, 0.88, 0.92, 0.96, 1]
+    .map(projectionAtDepth);
+
+  expect(activeSamples.every((sample) => sample.collisionActive)).toBe(true);
+  // Overscanned edge lanes intentionally finish beyond the screen. They must
+  // still cross a legal player silhouette for multiple active samples before
+  // leaving the near plane, so edge camping is no longer a safe exploit.
+  expect(activeSamples.filter((sample) => (
+    canThreatenLegalPlayerPosition(sample.position, radius)
+  )).length).toBeGreaterThanOrEqual(2);
+  expect(Math.hypot(nearVelocity.x, nearVelocity.y)).toBeCloseTo(speed);
+}
 
 describe('shared projectile perspective depth', () => {
   it('renders every attack kind far-small and near-large with correct foreshortening', () => {
@@ -16,7 +73,7 @@ describe('shared projectile perspective depth', () => {
       const middle = calculateTunnelDepthPose(kind, 0.5);
       const near = calculateTunnelDepthPose(kind, 1);
 
-      expect(far.scale).toBeCloseTo(0.16);
+      expect(far.scale).toBeCloseTo(0.13);
       expect(middle.scale).toBeGreaterThan(far.scale);
       expect(near.scale).toBeGreaterThan(middle.scale);
       expect(far.foreshortening).toBeLessThan(middle.foreshortening);
@@ -39,6 +96,38 @@ describe('shared projectile perspective depth', () => {
     expect(radius(middle)).toBeLessThan(radius(near));
     expect(far.x).toBeGreaterThan(BOSS_PROJECTILE_ORIGIN.x);
     expect(far.y).toBeGreaterThan(BOSS_PROJECTILE_ORIGIN.y);
+  });
+
+  it('accelerates distance, downward travel, and scale across each perspective quarter', () => {
+    const trajectory = createTunnelTrajectory(
+      { x: 270, y: -100 },
+      { x: 0, y: 250 },
+      18,
+      { x: 270, y: 820 },
+    );
+    const depths = [0, 0.25, 0.5, 0.75, 1];
+    const samples = depths.map((depth) => sampleTunnelProjection(
+      trajectory,
+      {
+        x: trajectory.spawn.x
+          + (trajectory.approachPoint.x - trajectory.spawn.x) * depth,
+        y: trajectory.spawn.y
+          + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
+      },
+    ));
+    const distances = samples.map((sample) => sample.radialDistance);
+    const ys = samples.map((sample) => sample.position.y);
+    const scales = depths.map((depth) => calculateTunnelDepthPose('paper', depth).scale);
+    const increments = (values: number[]): number[] => values
+      .slice(1)
+      .map((value, index) => value - values[index]!);
+
+    expect(ys[0]).toBeCloseTo(BOSS_PROJECTILE_ORIGIN.y);
+    expect(ys[4]).toBeCloseTo(820);
+    expect(increments(distances)[0]).toBeGreaterThan(50);
+    expect(increments(distances)).toEqual([...increments(distances)].sort((a, b) => a - b));
+    expect(increments(ys)).toEqual([...increments(ys)].sort((a, b) => a - b));
+    expect(increments(scales)).toEqual([...increments(scales)].sort((a, b) => a - b));
   });
 
   it('advances depth monotonically even if a homing collider briefly turns', () => {
@@ -80,7 +169,7 @@ describe('shared projectile perspective depth', () => {
     };
     const final = sampleTunnelProjection(trajectory, finalCollider, almost.depth);
 
-    expect(almost.collisionActive).toBe(false);
+    expect(almost.collisionActive).toBe(true);
     expect(final.collisionActive).toBe(true);
     expect(Math.hypot(
       final.position.x - almost.position.x,
@@ -88,25 +177,233 @@ describe('shared projectile perspective depth', () => {
     )).toBeLessThan(15);
   });
 
-  it('uses a frame-rate-independent near-depth speed trace length', () => {
-    expect(projectileStreakLength(0)).toBe(10);
-    expect(projectileStreakLength(0.5)).toBeGreaterThan(30);
-    expect(projectileStreakLength(1)).toBe(75);
+  it('shares the Boss lower-bezel vanishing point with non-linear floor depth rows', () => {
+    expect(BOSS_PROJECTILE_ORIGIN).toEqual({ x: 270, y: 385 });
+    const rows = Array.from({ length: 11 }, (_, index) => floorGridY(index + 1, 11, 900));
+    const gaps = rows.map((row, index) => row - (rows[index - 1] ?? BOSS_PROJECTILE_ORIGIN.y));
+
+    expect(rows.at(-1)).toBeCloseTo(900);
+    expect(gaps[0]).toBeGreaterThan(0);
+    expect(gaps).toEqual([...gaps].sort((a, b) => a - b));
+    expect(gaps.at(-1)!).toBeGreaterThan(gaps[0]! * 3);
   });
 
-  it('converges exactly on the fixed collider before collision activates', () => {
+  it('uses a stronger near-camera size ramp for each physical document kind', () => {
+    expect(calculateTunnelDepthPose('paper', 1).scale).toBeCloseTo(1.65);
+    expect(calculateTunnelDepthPose('returnable', 1).scale).toBeCloseTo(1.78);
+    expect(calculateTunnelDepthPose('comment', 1).scale).toBeCloseTo(1.55);
+    expect(calculateTunnelDepthPose('wall', 1).scale).toBeCloseTo(1.55);
+    expect(calculateTunnelDepthPose('homing', 1).scale).toBeCloseTo(1.65);
+  });
+
+  it('deforms inbound documents continuously without honoring authored spin', () => {
+    const slow = calculateInboundProjectileTransform(0.55, 180, -9);
+    const fast = calculateInboundProjectileTransform(0.55, 900, 9);
+    const near = calculateInboundProjectileTransform(1, 900, 9);
+
+    expect(slow.rotation).toBe(0);
+    expect(fast.rotation).toBe(0);
+    expect(fast.scaleX).toBeLessThan(slow.scaleX);
+    expect(fast.scaleY).toBeGreaterThan(slow.scaleY);
+    expect(fast.scaleX).toBeLessThan(1);
+    expect(fast.scaleY).toBeGreaterThan(1.1);
+    expect(near.scaleX).toBeGreaterThan(fast.scaleX);
+    expect(near.scaleY).toBeLessThan(fast.scaleY);
+
+    const samples = Array.from({ length: 101 }, (_, index) => (
+      calculateInboundProjectileTransform(index / 100, 900, 12)
+    ));
+    for (let index = 1; index < samples.length; index += 1) {
+      expect(Math.abs(samples[index]!.scaleX - samples[index - 1]!.scaleX)).toBeLessThan(0.02);
+      expect(Math.abs(samples[index]!.scaleY - samples[index - 1]!.scaleY)).toBeLessThan(0.03);
+      expect(samples[index]!.rotation).toBe(0);
+    }
+  });
+
+  it('keystones each document toward the Boss instead of only scaling a rectangle', () => {
+    const far = calculateProjectilePerspectiveQuad(
+      { x: 270, y: 700 },
+      96,
+      124,
+      0,
+    );
+    const near = calculateProjectilePerspectiveQuad(
+      { x: 270, y: 700 },
+      96,
+      124,
+      1,
+    );
+    const edgeLength = (
+      first: Readonly<{ x: number; y: number }>,
+      second: Readonly<{ x: number; y: number }>,
+    ): number => Math.hypot(second.x - first.x, second.y - first.y);
+    const farTop = edgeLength(far.topLeft, far.topRight);
+    const farBottom = edgeLength(far.bottomLeft, far.bottomRight);
+    const nearTop = edgeLength(near.topLeft, near.topRight);
+    const nearBottom = edgeLength(near.bottomLeft, near.bottomRight);
+
+    expect(farTop).toBeLessThan(farBottom);
+    expect(nearTop).toBeLessThan(nearBottom);
+    expect(nearTop / nearBottom).toBeLessThan(farTop / farBottom);
+    // A straight-down shot stays upright: it is a trapezoid, not a rotated
+    // sprite, and its visual centre remains on the collider.
+    expect(near.topLeft.y).toBeCloseTo(near.topRight.y, 10);
+    expect(near.bottomLeft.y).toBeCloseTo(near.bottomRight.y, 10);
+    expect([
+      near.topLeft,
+      near.topRight,
+      near.bottomRight,
+      near.bottomLeft,
+    ].reduce((sum, corner) => sum + corner.x, 0)).toBeCloseTo(0, 10);
+    expect([
+      near.topLeft,
+      near.topRight,
+      near.bottomRight,
+      near.bottomLeft,
+    ].reduce((sum, corner) => sum + corner.y, 0)).toBeCloseTo(0, 10);
+  });
+
+  it('uses the authored Boss ray when the card is still on the vanishing point', () => {
+    const quad = calculateProjectilePerspectiveQuad(
+      BOSS_PROJECTILE_ORIGIN,
+      48,
+      62,
+      0.2,
+      { x: 440, y: 780 },
+    );
+    const corners = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
+
+    expect(corners.every((corner) => Number.isFinite(corner.x) && Number.isFinite(corner.y)))
+      .toBe(true);
+    expect(quad.topRight.x + quad.topRight.y).not.toBeCloseTo(
+      -(quad.bottomLeft.x + quad.bottomLeft.y),
+      5,
+    );
+  });
+
+  it('gives left and right lanes visibly opposite 3D yaw with zero roll', () => {
+    const left = calculateProjectilePerspectiveQuad(
+      { x: 175, y: 590 },
+      96,
+      124,
+      0.72,
+      { x: 100, y: 760 },
+    );
+    const right = calculateProjectilePerspectiveQuad(
+      { x: 365, y: 590 },
+      96,
+      124,
+      0.72,
+      { x: 440, y: 760 },
+    );
+    const center = calculateProjectilePerspectiveQuad(
+      { x: 270, y: 590 },
+      96,
+      124,
+      0.72,
+      { x: 270, y: 760 },
+    );
+    const edgeLength = (
+      first: Readonly<{ x: number; y: number }>,
+      second: Readonly<{ x: number; y: number }>,
+    ): number => Math.hypot(second.x - first.x, second.y - first.y);
+    const leftOuterEdge = edgeLength(left.topLeft, left.bottomLeft);
+    const leftInnerEdge = edgeLength(left.topRight, left.bottomRight);
+    const rightInnerEdge = edgeLength(right.topLeft, right.bottomLeft);
+    const rightOuterEdge = edgeLength(right.topRight, right.bottomRight);
+    const centerLeftEdge = edgeLength(center.topLeft, center.bottomLeft);
+    const centerRightEdge = edgeLength(center.topRight, center.bottomRight);
+
+    // Each card opens its inner edge toward the Boss ray. Mirrored screen
+    // lanes therefore expose mirrored card faces rather than reusing one 2D
+    // shape with the left/right deformation accidentally reversed.
+    expect(leftInnerEdge).toBeGreaterThan(leftOuterEdge * 1.18);
+    expect(rightInnerEdge).toBeGreaterThan(rightOuterEdge * 1.18);
+    expect(leftInnerEdge).toBeCloseTo(rightInnerEdge, 8);
+    expect(leftOuterEdge).toBeCloseTo(rightOuterEdge, 8);
+    expect(left.topLeft.x).toBeCloseTo(-right.topRight.x, 8);
+    expect(left.topLeft.y).toBeCloseTo(right.topRight.y, 8);
+    expect(left.bottomLeft.x).toBeCloseTo(-right.bottomRight.x, 8);
+    expect(left.bottomLeft.y).toBeCloseTo(right.bottomRight.y, 8);
+
+    // The centre lane has pitch but no yaw/roll, so its two side edges remain
+    // equal and the document does not become a rotated 2D sprite.
+    expect(centerLeftEdge).toBeCloseTo(centerRightEdge, 10);
+    expect(center.topLeft.y).toBeCloseTo(center.topRight.y, 10);
+    expect(center.bottomLeft.y).toBeCloseTo(center.bottomRight.y, 10);
+  });
+
+  it('builds lane yaw progressively without changing its direction mid-flight', () => {
+    const reference = { x: 92, y: 790 };
+    const far = calculateProjectilePerspectiveQuad(
+      BOSS_PROJECTILE_ORIGIN,
+      96,
+      124,
+      0.08,
+      reference,
+    );
+    const near = calculateProjectilePerspectiveQuad(
+      { x: 92, y: 790 },
+      96,
+      124,
+      1,
+      reference,
+    );
+    const edgeLength = (
+      first: Readonly<{ x: number; y: number }>,
+      second: Readonly<{ x: number; y: number }>,
+    ): number => Math.hypot(second.x - first.x, second.y - first.y);
+    const innerEdgeRatio = (quad: typeof far): number => (
+      edgeLength(quad.topRight, quad.bottomRight)
+      / edgeLength(quad.topLeft, quad.bottomLeft)
+    );
+
+    expect(innerEdgeRatio(far)).toBeGreaterThan(1);
+    expect(innerEdgeRatio(near)).toBeGreaterThan(innerEdgeRatio(far) + 0.1);
+  });
+
+  it('keeps a far authored point separate before converging on the near point', () => {
     const spawn = { x: 270, y: 155 };
     const velocity = { x: 0, y: 300 };
     const trajectory = createTunnelTrajectory(spawn, velocity, 22);
-    const before = sampleTunnelProjection(trajectory, { x: 270, y: 360 });
+    const before = sampleTunnelProjection(trajectory, { x: 270, y: 330 });
     const atEntry = sampleTunnelProjection(trajectory, trajectory.nearPoint, before.depth);
 
     expect(before.collisionActive).toBe(false);
-    expect(before.position).not.toEqual({ x: 270, y: 360 });
+    expect(before.position).not.toEqual({ x: 270, y: 330 });
     expect(atEntry.depth).toBe(1);
     expect(atEntry.collisionActive).toBe(true);
     expect(atEntry.position.x).toBeCloseTo(trajectory.nearPoint.x, 10);
     expect(atEntry.position.y).toBeCloseTo(trajectory.nearPoint.y, 10);
+  });
+
+  it('activates contact at depth 0.80 while the card is still approaching', () => {
+    const trajectory = createTunnelTrajectory(
+      { x: 270, y: 155 },
+      { x: 0, y: 300 },
+      18,
+      { x: 390, y: 820 },
+      1_000,
+    );
+    const sampleAt = (depth: number) => sampleTunnelProjection(
+      trajectory,
+      {
+        x: trajectory.spawn.x
+          + (trajectory.approachPoint.x - trajectory.spawn.x) * depth,
+        y: trajectory.spawn.y
+          + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
+      },
+    );
+    const before = sampleAt(PROJECTILE_CONTACT_DEPTH - 0.001);
+    const contact = sampleAt(PROJECTILE_CONTACT_DEPTH);
+    const approaching = sampleAt(0.95);
+
+    expect(before.collisionActive).toBe(false);
+    expect(contact.collisionActive).toBe(true);
+    expect(approaching.collisionActive).toBe(true);
+    expect(contact.position).not.toEqual(trajectory.nearPoint);
+    expect(approaching.position.y).toBeGreaterThan(contact.position.y);
+    expect(approaching.depth).toBeLessThan(1);
   });
 
   it('uses the same depth ray for top, side, and wall-style spawns', () => {
@@ -123,5 +420,150 @@ describe('shared projectile perspective depth', () => {
       expect(spawnProjection.collisionActive).toBe(false);
       expect(trajectory.approachLength).toBeGreaterThan(0);
     }
+  });
+
+  it('continues paper-rain through the near plane on its Boss-origin radial ray', () => {
+    const trajectory = createTunnelTrajectory(
+      { x: 88, y: -120 },
+      { x: -18, y: 240 },
+      18,
+    );
+    const velocity = radialNearPlaneVelocity(trajectory, 240);
+    const bossToNear = {
+      x: trajectory.nearPoint.x - BOSS_PROJECTILE_ORIGIN.x,
+      y: trajectory.nearPoint.y - BOSS_PROJECTILE_ORIGIN.y,
+    };
+    const cross = bossToNear.x * velocity.y - bossToNear.y * velocity.x;
+
+    expect(Math.hypot(velocity.x, velocity.y)).toBeCloseTo(240);
+    expect(Math.abs(velocity.x)).toBeGreaterThan(20);
+    expect(Math.abs(cross)).toBeLessThan(1e-8);
+    expect(Math.sign(velocity.x)).toBe(Math.sign(bossToNear.x));
+    expect(velocity.y).toBeGreaterThan(0);
+  });
+
+  it('does not resume legacy flat side-scroll motion after perspective convergence', () => {
+    const trajectory = createTunnelTrajectory(
+      { x: -170, y: 650 },
+      { x: 280, y: 0 },
+      28,
+    );
+    const velocity = radialNearPlaneVelocity(trajectory, 280);
+
+    expect(velocity.x).toBeLessThan(0);
+    expect(velocity.y).toBeGreaterThan(0);
+    expect(velocity.y).not.toBe(0);
+  });
+
+  it('keeps all five physical kinds threatening after the near-plane hand-off', () => {
+    const configs: ProjectileConfig[] = [
+      planPaperRain(new SeededRng(11), 2, 1, 270)[0]!,
+      planReturnableBurst(new SeededRng(12), 2, 0, 1, { x: 270, y: 720 })
+        .projectiles.find((projectile) => projectile.kind === 'returnable')!,
+      planCommentCrossfire(new SeededRng(13), 3, 0, 1, { x: 270, y: 650 })
+        .projectiles[0]!,
+      planClosingWalls(new SeededRng(14), 3, 1, 650).projectiles[0]!,
+      planRevisionHoming(new SeededRng(15), 3, 1)[0]!,
+    ];
+
+    for (const config of configs) verifyNearPlaneTraversal(config);
+  });
+
+  it('carries side-authored comment and wall rays across an edge lane before exiting', () => {
+    const sideConfigs = [
+      planCommentCrossfire(new SeededRng(21), 1, 0, 1, { x: 270, y: 650 })
+        .projectiles[0]!,
+      planClosingWalls(new SeededRng(22), 3, 1, 650).projectiles
+        .find((projectile) => projectile.x < 0)!,
+    ];
+
+    for (const config of sideConfigs) {
+      const radius = config.radius ?? 18;
+      const trajectory = createTunnelTrajectory(
+        { x: config.x, y: config.y },
+        { x: config.vx, y: config.vy },
+        radius,
+        config.perspectiveTarget,
+        config.perspectiveDurationMs,
+        config.perspectiveOrigin,
+      );
+      const velocity = radialNearPlaneVelocity(trajectory, Math.hypot(config.vx, config.vy));
+
+      expect(trajectory.nearPoint.y).toBeGreaterThanOrEqual(430);
+      expect(velocity.y).toBeGreaterThan(0);
+      verifyNearPlaneTraversal(config);
+    }
+  });
+
+  it('keeps falling paper and returnable convergence deep in the player plane', () => {
+    const paper = planPaperRain(new SeededRng(31), 3, 1, 270)[0]!;
+    const returnable = planReturnableBurst(
+      new SeededRng(32),
+      3,
+      0,
+      1,
+      { x: 270, y: 720 },
+    ).projectiles.find((projectile) => projectile.kind === 'returnable')!;
+
+    for (const config of [paper, returnable]) {
+      const trajectory = createTunnelTrajectory(
+        { x: config.x, y: config.y },
+        { x: config.vx, y: config.vy },
+        config.radius ?? 18,
+        config.perspectiveTarget,
+        config.perspectiveDurationMs,
+        config.perspectiveOrigin,
+      );
+      expect(trajectory.nearPoint.y).toBeGreaterThanOrEqual(800);
+      expect(trajectory.nearPoint.y - BOSS_PROJECTILE_ORIGIN.y).toBeGreaterThan(400);
+      expect(trajectory.approachLength / Math.hypot(config.vx, config.vy)).toBeLessThan(2.8);
+      verifyNearPlaneTraversal(config);
+    }
+  });
+
+  it('keeps depth timing deterministic across paper rain and the staged returnable wave', () => {
+    const paperA = planPaperRain(new SeededRng(91), 3, 1, 270);
+    const paperB = planPaperRain(new SeededRng(91), 3, 1, 270);
+    const burstA = planReturnableBurst(
+      new SeededRng(92),
+      3,
+      2,
+      1,
+      { x: 270, y: 720 },
+    );
+    const burstB = planReturnableBurst(
+      new SeededRng(92),
+      3,
+      2,
+      1,
+      { x: 270, y: 720 },
+    );
+    const durations = (configs: readonly ProjectileConfig[]): number[] => configs
+      .map((config) => config.perspectiveDurationMs ?? 0);
+    const depthBandsAt1200ms = (configs: readonly ProjectileConfig[]): Set<number> => new Set(
+      durations(configs).map((duration) => Math.round(Math.min(1, 1_200 / duration) * 10)),
+    );
+
+    expect(durations(paperA)).toEqual(durations(paperB));
+    expect(durations(burstA.openingProjectiles)).toEqual(
+      durations(burstB.openingProjectiles),
+    );
+    expect(durations(burstA.returnableProjectiles)).toEqual(
+      durations(burstB.returnableProjectiles),
+    );
+    expect(new Set(durations(paperA)).size).toBeGreaterThanOrEqual(3);
+    expect(new Set(durations(burstA.openingProjectiles)).size).toBeGreaterThanOrEqual(3);
+    expect(depthBandsAt1200ms(paperA).size).toBeGreaterThanOrEqual(3);
+    for (const duration of durations(paperA)) {
+      expect(duration).toBeGreaterThanOrEqual(1_400);
+      expect(duration).toBeLessThanOrEqual(2_800);
+    }
+    for (const duration of durations(burstA.openingProjectiles)) {
+      expect(duration).toBeGreaterThanOrEqual(650);
+      expect(duration).toBeLessThan(RETURNABLE_OPENING_CLEAR_MS);
+    }
+    expect(durations(burstA.returnableProjectiles)).toHaveLength(1);
+    expect(durations(burstA.returnableProjectiles)[0]).toBeGreaterThanOrEqual(1_400);
+    expect(durations(burstA.returnableProjectiles)[0]).toBeLessThanOrEqual(1_500);
   });
 });

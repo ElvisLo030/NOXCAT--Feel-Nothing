@@ -20,6 +20,25 @@ describe('boss client trust boundary', () => {
     });
   });
 
+  it('sends at most 80 Unicode code points instead of counting UTF-16 units', async () => {
+    let requestInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      requestInit = args[1];
+      return new Response(JSON.stringify({
+        source: 'fallback',
+        boss: FALLBACK_BOSS,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchBossDNA(`  ${'😾'.repeat(81)}  `);
+
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      annoyance: '😾'.repeat(80),
+      locale: 'zh-TW',
+    });
+  });
+
   it('rejects malformed model data and uses the local fallback', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       source: 'ai',

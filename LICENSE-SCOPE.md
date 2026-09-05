@@ -47,3 +47,16 @@ licenses and are not relicensed by the project GPL grant. In particular,
 
 NOXCAT names and marks are used only to identify the hackathon entry. No
 endorsement, partnership, or transfer of trademark rights is implied.
+
+## Missing companion licence
+
+The organizer archive received on 2026-09-04 contains the image assets and
+`NOXCAT IP_Usage Guidelines.pdf`, but it does not contain the separate
+`NOXCAT Asset Licence` that section 1 of the Guidelines says accompanies the
+pack. Nothing in this repository substitutes for that licence or establishes
+rights that it would need to grant. The companion licence must be obtained and
+reviewed before relying on the organizer pack's distribution rights.
+
+The Guidelines additionally require NOXCAT's prior written consent for any
+continued publication, distribution, or commercialisation of work containing
+the assets after the event.

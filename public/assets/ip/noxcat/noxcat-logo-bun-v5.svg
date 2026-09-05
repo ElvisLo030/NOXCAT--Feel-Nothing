@@ -3,7 +3,7 @@
     Game-character redraw based on the proportions of the supplied official
     NOXCAT logo. The near-square silhouette, forward-clustered ears and long
     horizontal base are kept intentionally explicit. The official-green eyes
-    and forehead goggles remain a separate flat runtime layer so the body can
+    and forehead goggles remain separate flat runtime layers so the body can
     deform without blurring the character's identifying face details.
   -->
   <path

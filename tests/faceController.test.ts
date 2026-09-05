@@ -61,6 +61,27 @@ function createStream(trackCount = 1): {
   return { stream, tracks };
 }
 
+function createEndableStream(): {
+  stream: MediaStream;
+  track: FakeTrack;
+  endTrack: () => void;
+} {
+  const events = new EventTarget();
+  const track = {
+    stop: vi.fn(),
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+  };
+  const stream = {
+    getTracks: vi.fn(() => [track]),
+  } as unknown as MediaStream;
+  return {
+    stream,
+    track,
+    endTrack: () => events.dispatchEvent(new Event('ended')),
+  };
+}
+
 function createVideo(play = vi.fn(async () => undefined)): FakeVideo {
   return {
     autoplay: false,
@@ -231,6 +252,40 @@ describe('FaceController camera lifecycle', () => {
     });
   });
 
+  it('does not let a stopped video initialization overwrite the stopped lifecycle', async () => {
+    const { stream, tracks } = createStream();
+    const videoEvents = new EventTarget();
+    const video = {
+      ...createVideo(),
+      readyState: 0,
+      addEventListener: videoEvents.addEventListener.bind(videoEvents),
+      removeEventListener: videoEvents.removeEventListener.bind(videoEvents),
+    };
+    const statuses: FaceStatusUpdate[] = [];
+    installBrowser(vi.fn(async () => stream), video);
+    const controller = new FaceController({
+      onStatus: (update) => statuses.push(update),
+      videoElement: video as unknown as HTMLVideoElement,
+    });
+
+    const starting = controller.start(true);
+    await vi.waitFor(() => expect(video.srcObject).toBe(stream));
+    await controller.stop();
+    videoEvents.dispatchEvent(new Event('loadedmetadata'));
+
+    await expect(starting).resolves.toEqual({
+      ok: false,
+      mode: null,
+      reason: 'stopped',
+    });
+    expect(statuses.at(-1)).toEqual({
+      status: 'stopped',
+      mode: null,
+      reason: 'stopped',
+    });
+    expect(tracks[0]?.stop).toHaveBeenCalledOnce();
+  });
+
   it('stops every track, capture timer, worker, and hidden video resource', async () => {
     vi.useFakeTimers();
     const { stream, tracks } = createStream(2);
@@ -306,6 +361,55 @@ describe('FaceController camera lifecycle', () => {
     await controller.stop();
 
     expect(tracks[0]?.stop).toHaveBeenCalledOnce();
+    expect(mediaPipe.close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('revokes the score and releases resources when the camera track ends', async () => {
+    vi.useFakeTimers();
+    const { stream, track, endTrack } = createEndableStream();
+    const video = createVideo();
+    const scores: FaceScoreUpdate[] = [];
+    const statuses: FaceStatusUpdate[] = [];
+    const neutralSample: FaceActivitySample = {
+      smile: 0.1,
+      jawOpen: 0.08,
+      browUp: 0.1,
+      eyeWide: 0.1,
+    };
+    installBrowser(vi.fn(async () => stream), video);
+    vi.stubGlobal('Worker', undefined);
+    vi.stubGlobal('createImageBitmap', undefined);
+    mediaPipe.detectForVideo.mockReturnValue(faceResult(neutralSample));
+    const controller = new FaceController({
+      onScore: (update) => scores.push(update),
+      onStatus: (update) => statuses.push(update),
+      videoElement: video as unknown as HTMLVideoElement,
+    });
+
+    await controller.start(true);
+    const calibration = controller.calibrate(500, 1);
+    await vi.advanceTimersByTimeAsync(600);
+    await expect(calibration).resolves.toMatchObject({ ok: true });
+    expect(scores.some((score) => score.bonusEligible)).toBe(true);
+
+    endTrack();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(scores.at(-1)).toMatchObject({
+      rawNeutral: null,
+      neutral: null,
+      faceFound: false,
+      bonusEligible: false,
+      activityDetected: false,
+      mode: 'main-thread',
+    });
+    expect(statuses.at(-1)).toEqual({
+      status: 'unavailable',
+      mode: null,
+      reason: 'camera-failed',
+    });
+    expect(track.stop).toHaveBeenCalledOnce();
     expect(mediaPipe.close).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });

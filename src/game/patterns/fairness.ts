@@ -10,6 +10,15 @@ export const PLAYER_MAX_X = 494;
 export const PLAYER_MIN_Y = 430;
 export const PLAYER_MAX_Y = 884;
 
+/** Near-plane attack centres intentionally extend past both screen edges. */
+export const ATTACK_NEAR_MIN_X = -40;
+export const ATTACK_NEAR_MAX_X = 580;
+
+/** Visible wall portals for box-tunnel attacks; cards emerge here, not at the Boss. */
+export const SIDE_ATTACK_ORIGIN_LEFT_X = -24;
+export const SIDE_ATTACK_ORIGIN_RIGHT_X = 564;
+export const SIDE_ATTACK_ORIGIN_Y = 385;
+
 /** Side-spawned hazards stay inside ProjectileSystem's recycle boundary. */
 export const LEFT_WARNING_X = -170;
 export const RIGHT_WARNING_X = 710;

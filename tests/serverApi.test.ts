@@ -78,6 +78,53 @@ describe('POST /api/boss acceptance boundary', () => {
     await expect(response.json()).resolves.toEqual({ error: 'payload_too_large' });
   });
 
+  it('accepts a valid JSON body at the 3968-byte limit', async () => {
+    const baseUrl = await freshApi();
+    const validJson = JSON.stringify({ annoyance: '', locale: 'zh-TW' });
+    const body = validJson + ' '.repeat(3_968 - Buffer.byteLength(validJson));
+
+    const response = await fetch(`${baseUrl}/api/boss`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+
+    expect(Buffer.byteLength(body)).toBe(3_968);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      source: 'fallback',
+      boss: FALLBACK_BOSS,
+    });
+  });
+
+  it('returns a generic 400 response for malformed JSON without exposing a stack', async () => {
+    const response = await fetch(`${await freshApi()}/api/boss`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"annoyance":',
+    });
+
+    expect(response.status).toBe(400);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: 'invalid_json' });
+    expect(body).not.toMatch(/(?:stack|SyntaxError|node_modules)/i);
+  });
+
+  it('serves health and API 404 responses from the same hardened Express app', async () => {
+    const baseUrl = await freshApi();
+    const [health, missing] = await Promise.all([
+      fetch(`${baseUrl}/api/health`),
+      fetch(`${baseUrl}/api/not-a-route`),
+    ]);
+
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({ ok: true });
+    expect(health.headers.get('x-powered-by')).toBeNull();
+
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({ error: 'not_found' });
+  });
+
   it('rejects an annoyance containing 81 Unicode code points', async () => {
     const response = await postBoss(await freshApi(), {
       annoyance: '😾'.repeat(81),

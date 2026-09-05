@@ -1,13 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
-test('player can compile a fallback boss, launch three times, and win', async ({ page }, testInfo) => {
+test('an API failure falls back locally and three real pull-release launches win', async ({ page, browserName }) => {
+  await page.route('**/api/boss', (route) => route.abort('failed'));
   await page.goto('/?debug=1');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
 
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => Boolean(window.__NOXCAT_TEST__));
+  await page.evaluate(() => window.__NOXCAT_TEST__?.pauseAttacksForVisualTest());
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 
@@ -17,16 +20,15 @@ test('player can compile a fallback boss, launch three times, and win', async ({
       return state === 'DODGING' || state === 'VULNERABLE';
     });
     await page.evaluate(() => window.__NOXCAT_TEST__?.fillEnergy());
-    if (testInfo.project.name === 'mobile-webkit') {
-      // Playwright WebKit cannot synthesize a trusted drag gesture. The test
-      // hook invokes the same aim/release/resolve state-machine path; Chromium
-      // above exercises the actual touch-like canvas gesture.
-      await page.evaluate(() => window.__NOXCAT_TEST__?.damageBoss());
-    } else {
-      await launchUpward(page);
-    }
+    await expect.poll(
+      () => page.evaluate(() => window.__NOXCAT_TEST__?.waveSnapshot().dangerOverlayAlpha),
+    ).toBe(0);
+    await launchUpward(page, browserName === 'webkit');
     await page.waitForFunction(
-      (expectedHits) => (window.__NOXCAT_TEST__?.snapshot().mainAttackHits ?? 0) >= expectedHits,
+      (expectedHits) => (
+        (window.__NOXCAT_TEST__?.snapshot().mainAttackHits ?? 0) >= expectedHits
+        || document.querySelector('[data-testid="result-title"]')?.textContent === 'BOSS DEFEATED'
+      ),
       hit,
       { timeout: 5_000 },
     );
@@ -43,6 +45,7 @@ test('client-side API failure still starts a playable local boss', async ({ page
   await page.route('**/api/boss', (route) => route.abort('failed'));
   await page.goto('/?debug=1');
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 5_000 });
   await page.waitForFunction(() => Boolean(window.__NOXCAT_TEST__));
   const snapshot = await page.evaluate(() => window.__NOXCAT_TEST__?.snapshot());
@@ -56,15 +59,16 @@ test('goggles default on and the start-screen opt-out reaches the render layer',
   const gogglesToggle = page.getByTestId('goggles-enabled');
   await expect(gogglesToggle).toBeChecked();
   const screenBox = await page.locator('.start-screen').boundingBox();
-  const privacyBox = await page.locator('.privacy-note').boundingBox();
-  if (!screenBox || !privacyBox) throw new Error('Start screen does not have measurable bounds');
-  expect(privacyBox.y + privacyBox.height).toBeLessThanOrEqual(screenBox.y + screenBox.height + 1);
+  const formBox = await page.getByTestId('start-form').boundingBox();
+  if (!screenBox || !formBox) throw new Error('Start screen does not have measurable bounds');
+  expect(formBox.y + formBox.height).toBeLessThanOrEqual(screenBox.y + screenBox.height + 1);
   const verticalOverflow = await page.evaluate(
     () => document.documentElement.scrollHeight - window.innerHeight,
   );
   expect(verticalOverflow).toBeLessThanOrEqual(1);
 
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => Boolean(window.__NOXCAT_TEST__));
   await expect.poll(
@@ -79,6 +83,7 @@ test('goggles default on and the start-screen opt-out reaches the render layer',
   await expect(page.locator('.css-goggles')).toBeVisible();
   await optOut.uncheck({ force: true });
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => Boolean(window.__NOXCAT_TEST__));
   await expect.poll(
@@ -91,6 +96,7 @@ test('desktop layout accepts keyboard movement without horizontal overflow', asy
   await page.goto('/?debug=1');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
@@ -115,6 +121,7 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   await page.goto('/?debug=1');
   await page.getByTestId('quick-需求一直改').click();
   await page.getByTestId('generate-boss').click();
+  await page.getByTestId('skip-camera').click();
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
@@ -146,8 +153,12 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   expect(dragging?.activeDroplets).toBe(0);
   expect(dragging?.glowLayerCount).toBe(3);
   expect(dragging?.glowOuterAlpha).toBeGreaterThan(0.04);
-  expect(dragging?.bodyDisplayWidth).toBe(158);
-  expect(dragging?.bodyDisplayHeight).toBe(145);
+  expect(dragging?.bodyDisplayWidth).toBeCloseTo(138, 3);
+  expect(dragging?.bodyDisplayHeight).toBeCloseTo(126, 3);
+  expect(dragging?.eyeDisplayWidth).toBeCloseTo(57, 3);
+  expect(dragging?.eyeDisplayHeight).toBeCloseTo(48, 3);
+  expect(dragging?.goggleDisplayWidth).toBeCloseTo(57, 3);
+  expect(dragging?.goggleDisplayHeight).toBeCloseTo(48, 3);
   // The logo-led bun body visibly deforms while the round head stays intact.
   expect((dragging?.scaleX ?? 0) - (dragging?.scaleY ?? 0)).toBeGreaterThan(0.08);
 
@@ -165,14 +176,29 @@ test('jelly body follows a fast drag without a tail, glows, rebounds, and keeps 
   const settled = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
   expect(Math.abs((settled?.scaleX ?? 1) - 1)).toBeLessThan(0.06);
   expect(Math.abs((settled?.scaleY ?? 1) - 1)).toBeLessThan(0.06);
+
+  if (!settled) throw new Error('NOXCAT did not expose its settled visual state');
+  const viewport = await page.evaluate(() => window.__NOXCAT_TEST__?.viewportSnapshot());
+  if (!viewport) throw new Error('Battle viewport is unavailable');
+  const upperDragStart = worldToScreen(box, viewport, settled.x, settled.y + 72);
+  const upperPointer = worldToScreen(box, viewport, settled.x, 502);
+  await page.mouse.move(upperDragStart.x, upperDragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(upperPointer.x, upperPointer.y, { steps: 8 });
+  await page.waitForTimeout(320);
+  const upper = await page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot());
+  await page.mouse.up();
+  expect(upper?.y ?? 900).toBeLessThan(500);
+  expect(upper?.depthScale ?? 1).toBeLessThan(0.52);
+  // Perspective changes only the image; the logical gameplay body stays fixed.
+  expect(upper?.hitRadius).toBe(18);
 });
 
-test('optional camera disclosure can be skipped without blocking play', async ({ page }) => {
+test('default Neutral mode disclosure can be skipped without blocking play', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.toggle-row').click();
-  await expect(page.locator('#camera-enabled')).toBeChecked();
+  await expect(page.locator('#camera-enabled')).toHaveCount(0);
   await page.getByTestId('generate-boss').click();
-  await expect(page.getByText('面無表情加成')).toBeVisible();
+  await expect(page.getByText('面無表情模式')).toBeVisible();
   await expect(page.getByText('鏡頭畫面不會上傳、不會錄影', { exact: false })).toBeVisible();
   await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 5_000 });
@@ -181,87 +207,66 @@ test('optional camera disclosure can be skipped without blocking play', async ({
 test('camera permission failure degrades to standard mode', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'Chromium provides deterministic headless permission denial');
   await page.goto('/');
-  await page.locator('.toggle-row').click();
   await page.getByTestId('generate-boss').click();
   await page.getByTestId('start-calibration').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 12_000 });
+  await expect(page.locator('[data-battle-status]')).toHaveText('無法啟用相機，已自動改用標準模式。');
 });
 
-async function launchUpward(page: Page): Promise<void> {
+async function launchUpward(page: Page, useTrustedMouse = false): Promise<void> {
   const canvas = page.locator('canvas');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas does not have a bounding box');
-  const x = box.x + box.width * 0.5;
-  const startY = box.y + box.height * 0.79;
-  const pullY = box.y + box.height * 0.91;
+  const state = await page.evaluate(() => ({
+    visual: window.__NOXCAT_TEST__?.visualSnapshot(),
+    viewport: window.__NOXCAT_TEST__?.viewportSnapshot(),
+  }));
+  if (!state.visual || !state.viewport) {
+    throw new Error('NOXCAT visual state or battle viewport is unavailable before launch');
+  }
+  const start = worldToScreen(box, state.viewport, state.visual.x, state.visual.y);
+  const pull = worldToScreen(box, state.viewport, state.visual.x, state.visual.y + 140);
+  const x = start.x;
+  const startY = start.y;
+  const pullY = Math.min(box.y + box.height - 4, pull.y);
   const hasTouch = await page.evaluate(() => navigator.maxTouchPoints > 0);
-  if (!hasTouch) {
+  if (!hasTouch || useTrustedMouse) {
     await page.mouse.move(x, startY);
     await page.mouse.down();
     await page.mouse.move(x, pullY, { steps: 7 });
     await page.mouse.up();
     return;
   }
-  // Dispatch touch-like PointerEvents so this exercises Phaser's mobile input
-  // path consistently in mobile browser emulation.
-  await page.evaluate(
-    ({ x, startY, pullY }) => {
-      const target = document.querySelector('canvas');
-      if (!target) throw new Error('Canvas was removed before launch');
-      if (navigator.maxTouchPoints > 0 && typeof Touch === 'function') {
-        const touch = (y: number): Touch => new Touch({
-          identifier: 7,
-          target,
-          clientX: x,
-          clientY: y,
-          screenX: x,
-          screenY: y,
-          pageX: x,
-          pageY: y,
-          radiusX: 2,
-          radiusY: 2,
-          rotationAngle: 0,
-          force: 1
-        });
-        const fireTouch = (type: string, y: number, active: boolean): void => {
-          const point = touch(y);
-          target.dispatchEvent(new TouchEvent(type, {
-            bubbles: true,
-            cancelable: true,
-            composed: true,
-            touches: active ? [point] : [],
-            targetTouches: active ? [point] : [],
-            changedTouches: [point]
-          }));
-        };
-        fireTouch('touchstart', startY, true);
-        for (let step = 1; step <= 7; step += 1) {
-          fireTouch('touchmove', startY + (pullY - startY) * (step / 7), true);
-        }
-        fireTouch('touchend', pullY, false);
-        return;
-      }
-      const event = (type: string, y: number, buttons: number): PointerEvent => new PointerEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        pointerId: 7,
-        pointerType: 'touch',
-        isPrimary: true,
-        buttons,
-        button: 0,
-        clientX: x,
-        clientY: y,
-        screenX: x,
-        screenY: y
-      });
-      target.dispatchEvent(event('pointerdown', startY, 1));
-      for (let step = 1; step <= 7; step += 1) {
-        const y = startY + (pullY - startY) * (step / 7);
-        target.dispatchEvent(event('pointermove', y, 1));
-      }
-      window.dispatchEvent(event('pointerup', pullY, 0));
-    },
-    { x, startY, pullY },
-  );
+  // Chromium's DevTools touch injection produces trusted browser touch input,
+  // unlike constructing an untrusted TouchEvent inside the page.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y: startY, radiusX: 2, radiusY: 2, force: 1 }],
+  });
+  for (let step = 1; step <= 7; step += 1) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{
+        x,
+        y: startY + (pullY - startY) * (step / 7),
+        radiusX: 2,
+        radiusY: 2,
+        force: 1,
+      }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+function worldToScreen(
+  box: Readonly<{ x: number; y: number; width: number; height: number }>,
+  viewport: Readonly<{ left: number; top: number; width: number; height: number }>,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  return {
+    x: box.x + box.width * ((x - viewport.left) / viewport.width),
+    y: box.y + box.height * ((y - viewport.top) / viewport.height),
+  };
 }

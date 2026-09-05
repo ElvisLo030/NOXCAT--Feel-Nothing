@@ -80,9 +80,10 @@ describe('NOXCAT code-native asset design', () => {
     const gogglesRenderer = registry.match(
       /private static makeNoxcatGoggles[\s\S]*?(?=\n\s*private static makeHitFlash)/,
     )?.[0];
+    const executableEyesRenderer = eyesRenderer?.replace(/\/\/.*$/gm, '');
     expect(eyesRenderer).toContain("this.key('noxcat.eyes')");
     expect(eyesRenderer).toContain('fillStyle(NOXCAT_OFFICIAL_GREEN, 1)');
-    expect(eyesRenderer).not.toMatch(/pupil|highlight|fillCircle|stroke/i);
+    expect(executableEyesRenderer).not.toMatch(/pupil|highlight|fillCircle|stroke/i);
     expect(gogglesRenderer).toContain("this.key('noxcat.goggles')");
     expect(gogglesRenderer).toContain('NOXCAT_GOGGLE_LENSES');
   });

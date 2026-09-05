@@ -1,6 +1,12 @@
 import type { SeededRng } from '../../utils/rng';
 import type { ProjectileConfig } from '../entities/Projectile';
 import type { ProjectileSystem } from '../systems/ProjectileSystem';
+import {
+  createPatternTimeline,
+  staggeredSpawnEvents,
+  type AttackPatternContext,
+  type AttackPatternHandle,
+} from './types';
 
 export const REVISION_WARNING_Y = -65;
 
@@ -22,6 +28,11 @@ export function planRevisionHoming(
       vy: rng.range(130, 180) * speedScale,
       rotationSpeed: rng.range(-1.8, 1.8),
       homingMs: 950 + intensity * 160,
+      perspectiveTarget: {
+        x: fromLeft ? 205 : 335,
+        y: 760,
+      },
+      perspectiveDurationMs: 2_200,
     };
   });
 }
@@ -35,4 +46,16 @@ export function spawnRevisionHoming(
   for (const config of planRevisionHoming(rng, intensity, speedScale)) {
     projectiles.spawn(config);
   }
+}
+
+export function runRevisionHoming(context: AttackPatternContext): AttackPatternHandle {
+  const configs = planRevisionHoming(
+    context.rng,
+    context.intensity,
+    context.speedScale,
+  );
+  return createPatternTimeline(
+    context.durationMs,
+    staggeredSpawnEvents(context.projectiles, configs, 240),
+  );
 }

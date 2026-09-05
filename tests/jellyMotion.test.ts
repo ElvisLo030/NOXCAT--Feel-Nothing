@@ -6,6 +6,8 @@ import {
   createReturnArc,
   crossedLaunchBoundary,
   MAX_JELLY_LEAN_RADIANS,
+  NOXCAT_FAR_SCALE,
+  noxcatPerspectiveScale,
   releasePulse,
   RELEASE_PULSE_DURATION_SECONDS,
   sampleReturnArc,
@@ -116,6 +118,17 @@ describe('JellyMotionSystem', () => {
     expect(pose.scaleX).toBe(1);
     expect(pose.scaleY).toBe(1);
     expect(pose.leanRadians).toBe(0);
+  });
+
+  it('shrinks the rendered cat toward the Boss without changing logical collision', () => {
+    expect(noxcatPerspectiveScale(740)).toBe(1);
+    expect(noxcatPerspectiveScale(600)).toBeLessThan(1);
+    expect(noxcatPerspectiveScale(430)).toBe(NOXCAT_FAR_SCALE);
+    expect(NOXCAT_FAR_SCALE).toBeLessThan(0.5);
+    expect(noxcatPerspectiveScale(740) - noxcatPerspectiveScale(430)).toBeGreaterThan(0.55);
+    expect(noxcatPerspectiveScale(200)).toBe(NOXCAT_FAR_SCALE);
+    expect(noxcatPerspectiveScale(900)).toBe(1);
+    expect(noxcatPerspectiveScale(500)).toBeLessThan(noxcatPerspectiveScale(650));
   });
 
   it('returns along a deterministic arc instead of a straight line', () => {

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { PALETTE } from '../../theme/palette';
 import { AIM_MAX_PULL } from '../constants';
 
 export class AimGuide {
@@ -20,9 +21,9 @@ export class AimGuide {
     const endX = startX + launchVector.x * length;
     const endY = startY + launchVector.y * length;
     this.graphics.setVisible(true).clear();
-    this.graphics.lineStyle(4, 0xd7ff32, 0.92);
+    this.graphics.lineStyle(4, PALETTE.green, 0.92);
     this.graphics.lineBetween(startX, startY, endX, endY);
-    this.graphics.fillStyle(0xd7ff32, 1);
+    this.graphics.fillStyle(PALETTE.green, 1);
     const perpendicular = new Phaser.Math.Vector2(-launchVector.y, launchVector.x);
     this.graphics.fillTriangle(
       endX,

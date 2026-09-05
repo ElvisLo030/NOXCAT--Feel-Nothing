@@ -2,11 +2,15 @@
   "name": "NOXCAT: FEEL NOTHING",
   "short_name": "NOXCAT",
   "description": "把今天的煩惱編譯成 Boss，再把 NOXCAT 當成果凍砲彈撞回去。",
+  "lang": "zh-Hant-TW",
+  "dir": "ltr",
+  "id": "/",
+  "scope": "/",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#070a08",
-  "theme_color": "#070a08",
+  "background_color": "#101820",
+  "theme_color": "#101820",
   "icons": [
     {
       "src": "/favicon.svg",
