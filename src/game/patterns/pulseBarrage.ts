@@ -6,7 +6,7 @@ import {
   ATTACK_NEAR_MAX_X,
   ATTACK_NEAR_MIN_X,
   evenlySpaced,
-  randomSignedRotationSpeed,
+  randomSignedYawOffset,
 } from './fairness';
 import {
   createPatternTimeline,
@@ -64,7 +64,7 @@ export function planPulseBarrage(
         vx: rng.range(-12, 12) * speedScale,
         vy: (270 + intensity * 24) * speedScale,
         radius: PROJECTILE_RADIUS,
-        rotationSpeed: randomSignedRotationSpeed(rng, 0.42, 0.82),
+        yawOffset: randomSignedYawOffset(rng, 7, 18),
         perspectiveTarget: target,
         perspectiveDurationMs: Math.round((980 + (index % 2) * 90) / depthClockScale),
       };

@@ -2,7 +2,7 @@ import type { SeededRng } from '../../utils/rng';
 import { PLAYER_HIT_RADIUS } from '../constants';
 import type { ProjectileConfig } from '../entities/Projectile';
 import { clearVerticalSafeWedgeForTunnelTarget } from '../systems/DangerTelegraph';
-import { clamp, randomSignedRotationSpeed } from './fairness';
+import { clamp, randomSignedYawOffset } from './fairness';
 import {
   createPatternTimeline,
   type AttackPatternContext,
@@ -67,7 +67,7 @@ export function planAlternatingZipper(
         vx: side * rng.range(22, 44) * speedScale,
         vy: (285 + intensity * 22) * speedScale,
         radius: PROJECTILE_RADIUS,
-        rotationSpeed: randomSignedRotationSpeed(rng, 0.58, 1.12),
+        yawOffset: randomSignedYawOffset(rng, 10, 24),
         perspectiveTarget: target,
         perspectiveDurationMs: Math.round((760 + (index % 2) * 80) / depthClockScale),
       },

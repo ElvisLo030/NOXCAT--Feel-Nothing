@@ -66,19 +66,20 @@ export function evenlySpaced(minimum: number, maximum: number, count: number): n
   );
 }
 
-/** A deterministic, visibly non-zero clockwise/counter-clockwise paper roll. */
-export function randomSignedRotationSpeed(
+/** A deterministic, visibly non-zero fixed yaw around the screen's vertical axis. */
+export function randomSignedYawOffset(
   rng: SeededRng,
-  minimumMagnitude: number,
-  maximumMagnitude: number,
+  minimumDegrees: number,
+  maximumDegrees: number,
 ): number {
-  const minimum = Math.max(0, Math.min(minimumMagnitude, maximumMagnitude));
-  const maximum = Math.max(minimum, minimumMagnitude, maximumMagnitude);
-  // One draw carries both sign and magnitude. Existing patterns that already
-  // sampled a signed speed therefore keep the same RNG cadence for layout.
+  const minimum = Math.max(0, Math.min(minimumDegrees, maximumDegrees));
+  const maximum = Math.max(minimum, minimumDegrees, maximumDegrees);
+  // One draw carries both sign and magnitude so the launch pose stays seeded
+  // without consuming a separate random value for clockwise/counter-clockwise.
   const signedSample = rng.range(-1, 1);
   const magnitude = minimum + (maximum - minimum) * Math.abs(signedSample);
-  return signedSample < 0 ? -magnitude : magnitude;
+  const signedDegrees = signedSample < 0 ? -magnitude : magnitude;
+  return signedDegrees * Math.PI / 180;
 }
 
 export function clamp(value: number, minimum: number, maximum: number): number {

@@ -12,9 +12,7 @@ import {
   createProjectilePerspectiveGridData,
   createProjectilePerspectiveProjection,
   createTunnelTrajectory,
-  PROJECTILE_CONTACT_DEPTH,
   projectProjectilePerspectiveUv,
-  rotateProjectedSurfacePoint,
   sampleTunnelProjection,
   type TunnelTrajectory,
   type ProjectileKind,
@@ -56,7 +54,8 @@ export interface ProjectileConfig {
   vx: number;
   vy: number;
   radius?: number;
-  rotationSpeed?: number;
+  /** Fixed signed 3D yaw around the screen's vertical axis, in radians. */
+  yawOffset?: number;
   damage?: boolean;
   homingMs?: number;
   text?: string;
@@ -73,11 +72,12 @@ export class Projectile extends Phaser.GameObjects.Container {
   vx = 0;
   vy = 0;
   radius = 18;
-  rotationSpeed = 0;
+  yawOffset = 0;
   isDamage = true;
   reflectable = false;
   friendly = false;
   collisionActive = false;
+  effectiveCollisionRadius = 0;
   previousCollisionActive = false;
   previousX = 0;
   previousY = 0;
@@ -85,12 +85,12 @@ export class Projectile extends Phaser.GameObjects.Container {
   hasGrazedPlayer = false;
   homingRemainingMs = 0;
   ageMs = 0;
-  private spinRotation = 0;
   private tunnelTrajectory!: TunnelTrajectory;
   private authoredX = 0;
   private authoredY = 0;
   private projectedX = 0;
   private projectedY = 0;
+  private projectedYaw = 0;
   private reducedVisualQuality = false;
   private outboundExitActive = false;
   private readonly collisionPoints = [
@@ -129,9 +129,14 @@ export class Projectile extends Phaser.GameObjects.Container {
     return this.outboundExitActive;
   }
 
-  /** Screen-space roll applied after the rigid perspective projection. */
-  get rollRotation(): number {
-    return this.spinRotation;
+  /** Fixed world/screen-Y plane yaw after lane correction and launch offset. */
+  get perspectiveYaw(): number {
+    return this.projectedYaw;
+  }
+
+  /** Must remain zero: documents never roll around the camera-facing axis. */
+  get screenRoll(): number {
+    return this.visualLayer.rotation;
   }
 
   /** Actual screen-space corners of the rendered document this frame. */
@@ -192,15 +197,15 @@ export class Projectile extends Phaser.GameObjects.Container {
     this.vx = config.vx;
     this.vy = config.vy;
     this.radius = config.radius ?? (config.kind === 'comment' ? 24 : 18);
-    this.rotationSpeed = config.rotationSpeed ?? 0;
+    this.yawOffset = config.yawOffset ?? 0;
     this.isDamage = config.damage ?? true;
     this.reflectable = config.kind === 'returnable';
     this.friendly = false;
     this.hasGrazedPlayer = false;
     this.homingRemainingMs = config.homingMs ?? 0;
     this.ageMs = 0;
-    this.spinRotation = 0;
     this.outboundExitActive = false;
+    this.projectedYaw = 0;
     this.tunnelDepth = 0;
     this.authoredX = config.x;
     this.authoredY = config.y;
@@ -223,7 +228,12 @@ export class Projectile extends Phaser.GameObjects.Container {
     this.tunnelDepth = initialProjection.depth;
     this.projectedX = initialProjection.position.x;
     this.projectedY = initialProjection.position.y;
-    const initialPose = calculateTunnelDepthPose(this.kind, this.tunnelDepth);
+    const initialPose = calculateTunnelDepthPose(
+      this.kind,
+      this.tunnelDepth,
+      this.tunnelTrajectory.contactDepth,
+    );
+    this.effectiveCollisionRadius = this.radius * Math.min(1, initialPose.scale);
     const initialVisualScaleY = this.perspectiveMesh
       ? initialPose.scale
       : initialPose.scale * initialPose.foreshortening;
@@ -269,7 +279,7 @@ export class Projectile extends Phaser.GameObjects.Container {
       initialPose.scale,
       initialVisualScaleY,
       true,
-      0,
+      this.yawOffset,
     );
     return this.setActive(true).setVisible(true);
   }
@@ -336,7 +346,7 @@ export class Projectile extends Phaser.GameObjects.Container {
         authoredPositionAfterStep,
         startAlongRay,
         endAlongRay,
-        this.tunnelTrajectory.approachLength * PROJECTILE_CONTACT_DEPTH,
+        this.tunnelTrajectory.approachLength * this.tunnelTrajectory.contactDepth,
       );
       const contactProjection = sampleTunnelProjection(
         this.tunnelTrajectory,
@@ -372,15 +382,12 @@ export class Projectile extends Phaser.GameObjects.Container {
       this.previousX = collisionWasActive ? positionBeforeStep.x : this.x;
       this.previousY = collisionWasActive ? positionBeforeStep.y : this.y;
     }
-    // Compose transforms in the physically readable order requested by the
-    // art direction: first build the left/right keystone below, then rotate
-    // that complete rigid surface clockwise or counter-clockwise here. The
-    // signed speed is authored by the seeded pattern RNG.
-    const spinScale = this.friendly ? 0.65 : 1;
-    this.spinRotation = Phaser.Math.Angle.Wrap(
-      this.spinRotation + this.rotationSpeed * dt * spinScale,
+    const depthPose = calculateTunnelDepthPose(
+      this.kind,
+      this.tunnelDepth,
+      this.tunnelTrajectory.contactDepth,
     );
-    const depthPose = calculateTunnelDepthPose(this.kind, this.tunnelDepth);
+    this.effectiveCollisionRadius = this.radius * Math.min(1, depthPose.scale);
     // A document is a rigid plane. The projected mesh already supplies all
     // pitch, yaw and foreshortening. Never add speed-based squash/stretch to a
     // rigid card; Canvas only keeps the mild depth foreshortening fallback.
@@ -395,15 +402,17 @@ export class Projectile extends Phaser.GameObjects.Container {
       projection.position.x - this.x,
       projection.position.y - this.y,
     );
-    this.visualLayer.setRotation(this.spinRotation);
+    // The paper's pose is chosen once at launch. Never accumulate a 2D roll
+    // while it travels; all apparent turning comes from its fixed 3D yaw.
+    this.visualLayer.setRotation(0);
     this.updatePerspectiveSurface(
       projection.position.x,
       projection.position.y,
       depthPose.progress,
       visualScaleX,
       visualScaleY,
-      !this.friendly,
-      this.spinRotation,
+      true,
+      this.yawOffset,
     );
     this.depthShadow
       .setScale(Phaser.Math.Linear(0.55, 1.45, depthPose.progress))
@@ -465,7 +474,6 @@ export class Projectile extends Phaser.GameObjects.Container {
   }
 
   recycle(): void {
-    this.spinRotation = 0;
     this.outboundExitActive = false;
     this.setRotation(0);
     this.sprite.setRotation(0);
@@ -490,7 +498,7 @@ export class Projectile extends Phaser.GameObjects.Container {
     visualScaleX: number,
     visualScaleY: number,
     warped: boolean,
-    rollRadians: number,
+    yawOffsetRadians: number,
   ): void {
     const sourceWidth = this.kind === 'comment'
       ? Math.max(1, this.comment.width)
@@ -508,6 +516,7 @@ export class Projectile extends Phaser.GameObjects.Container {
           depth,
           this.tunnelTrajectory.nearPoint,
           this.tunnelTrajectory.origin,
+          yawOffsetRadians,
         )
       : undefined;
     const quad = projection
@@ -523,12 +532,14 @@ export class Projectile extends Phaser.GameObjects.Container {
           bottomRight: { x: sourceWidth * safeScaleX / 2, y: sourceHeight * safeScaleY / 2 },
           bottomLeft: { x: -sourceWidth * safeScaleX / 2, y: sourceHeight * safeScaleY / 2 },
         };
+    this.projectedYaw = projection?.yawRadians ?? yawOffsetRadians;
     const corners = [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
     for (let index = 0; index < corners.length; index += 1) {
       const corner = corners[index];
       const collisionPoint = this.collisionPoints[index];
       if (!corner || !collisionPoint) continue;
-      rotateProjectedSurfacePoint(corner, rollRadians, collisionPoint);
+      collisionPoint.x = corner.x;
+      collisionPoint.y = corner.y;
       collisionPoint.x += projectedX;
       collisionPoint.y += projectedY;
     }

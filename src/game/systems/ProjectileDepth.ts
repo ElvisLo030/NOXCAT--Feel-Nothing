@@ -29,6 +29,8 @@ export interface ProjectilePerspectiveQuad {
 export interface ProjectilePerspectiveProjection {
   readonly halfWidth: number;
   readonly halfHeight: number;
+  readonly yawRadians: number;
+  readonly pitchRadians: number;
   readonly cosineYaw: number;
   readonly sineYaw: number;
   readonly cosinePitch: number;
@@ -51,11 +53,7 @@ export const BOSS_PROJECTILE_ORIGIN: ProjectileDepthPoint = { x: 270, y: 385 };
 export const TUNNEL_RADIUS_X = 300;
 export const TUNNEL_RADIUS_Y = 670;
 export const PROJECTILE_COLLISION_ENTRY_Y = 386;
-/**
- * At 0.80 the card reaches display depth 30, matching NOXCAT's render depth.
- * Its projected centre therefore becomes the gameplay collider here. Earlier
- * depth remains presentation-only; radial exit motion still begins at depth 1.
- */
+/** Fallback contact depth for degenerate rays that never enter the player arena. */
 export const PROJECTILE_CONTACT_DEPTH = 0.80;
 export const FLOOR_GRID_EXPONENT = 1.8;
 
@@ -70,6 +68,8 @@ export interface TunnelTrajectory {
   readonly laneAngle: number;
   readonly laneRadius: number;
   readonly approachLength: number;
+  /** First depth whose projected card can enter the complete player arena. */
+  readonly contactDepth: number;
   readonly directionX: number;
   readonly directionY: number;
 }
@@ -91,6 +91,7 @@ const PLAYER_MIN_Y = 430;
 const PLAYER_MAX_Y = 884;
 const PLAYER_HIT_RADIUS = 18;
 const TUNNEL_EPSILON = 1e-6;
+const PROJECTILE_DEPTH_EXPONENT = 1.35;
 
 export function nearWallVisualHalfHeight(): number {
   return PROJECTILE_TEXTURE_HEIGHT * WALL_CARD_SCALE_Y * WALL_NEAR_DEPTH_SCALE / 2;
@@ -113,6 +114,7 @@ export function calculateProjectileDepthPose(
 export function calculateTunnelDepthPose(
   kind: ProjectileKind,
   depth: number,
+  contactDepth = PROJECTILE_CONTACT_DEPTH,
 ): ProjectileDepthPose {
   const progress = clamp(depth, 0, 1);
   const expansion = projectileDepthExpansion(progress);
@@ -126,15 +128,25 @@ export function calculateTunnelDepthPose(
         : kind === 'homing'
           ? 1.65
           : 1.65;
+  const safeContactDepth = clamp(contactDepth, 0, 1);
+  const displayDepth = safeContactDepth <= TUNNEL_EPSILON
+    ? lerp(30, 36, progress)
+    : progress <= safeContactDepth
+      ? lerp(6, 30, progress / safeContactDepth)
+      : lerp(
+          30,
+          36,
+          (progress - safeContactDepth) / Math.max(TUNNEL_EPSILON, 1 - safeContactDepth),
+        );
   return {
     progress,
     alignment: expansion,
     scale: lerp(FAR_DEPTH_SCALE, endScale, scaleDepth),
     foreshortening: lerp(kind === 'comment' ? 0.84 : 0.82, 1, scaleDepth),
     alpha: lerp(0.16, 1, Math.sqrt(progress)),
-    // Far cards begin behind the Boss shell, then cross in front of the player
-    // only at near depth. This gives the perspective pass correct occlusion.
-    displayDepth: 6 + progress * 30,
+    // The card crosses in front exactly when its projected ray can first enter
+    // the player's complete movement arena. This keeps visuals and damage in sync.
+    displayDepth,
   };
 }
 
@@ -157,6 +169,15 @@ export function createTunnelTrajectory(
     right: PLAYER_MAX_X + padding,
     top: PLAYER_MIN_Y - padding,
     bottom: PLAYER_MAX_Y + padding,
+  };
+  // Contact depth follows the reachable player silhouette, not the base-size
+  // projectile radius. The latter is scaled down in the distance and is
+  // applied per frame by Projectile.effectiveCollisionRadius.
+  const playerContactBounds = {
+    left: PLAYER_MIN_X - PLAYER_HIT_RADIUS,
+    right: PLAYER_MAX_X + PLAYER_HIT_RADIUS,
+    top: PLAYER_MIN_Y - PLAYER_HIT_RADIUS,
+    bottom: PLAYER_MAX_Y + PLAYER_HIT_RADIUS,
   };
   const entryTime = rayRectangleEntryTime(spawn, velocity, collisionBounds);
   const fallbackTime = firstForwardBoundaryTime(spawn, velocity);
@@ -200,6 +221,18 @@ export function createTunnelTrajectory(
   const normalizedX = (nearPoint.x - perspectiveOrigin.x) / TUNNEL_RADIUS_X;
   const normalizedY = (nearPoint.y - perspectiveOrigin.y) / TUNNEL_RADIUS_Y;
   const laneRadius = Math.hypot(normalizedX, normalizedY);
+  const projectedRay = {
+    x: nearPoint.x - perspectiveOrigin.x,
+    y: nearPoint.y - perspectiveOrigin.y,
+  };
+  const contactExpansion = rayRectangleEntryTime(
+    perspectiveOrigin,
+    projectedRay,
+    playerContactBounds,
+  );
+  const contactDepth = contactExpansion === null
+    ? PROJECTILE_CONTACT_DEPTH
+    : Math.pow(clamp(contactExpansion, 0, 1), 1 / PROJECTILE_DEPTH_EXPONENT);
 
   return {
     origin: { ...perspectiveOrigin },
@@ -209,6 +242,7 @@ export function createTunnelTrajectory(
     laneAngle: Math.atan2(normalizedY, normalizedX),
     laneRadius,
     approachLength,
+    contactDepth,
     directionX: approachLength > TUNNEL_EPSILON ? approachX / approachLength : 0,
     directionY: approachLength > TUNNEL_EPSILON ? approachY / approachLength : 0,
   };
@@ -274,13 +308,13 @@ export function sampleTunnelProjection(
     position,
     depth,
     radialDistance: distanceFromOrigin(position),
-    collisionActive: depth >= PROJECTILE_CONTACT_DEPTH - TUNNEL_EPSILON,
+    collisionActive: depth >= trajectory.contactDepth - TUNNEL_EPSILON,
   };
 }
 
 /**
  * Projects a card plane into a four-corner keystone. Each lane gets its own
- * yaw and pitch while roll stays zero. This is intentionally separate from
+ * fixed yaw and pitch while roll stays zero. This is intentionally separate from
  * the depth scale: scaling alone preserves a perfect rectangle and reads as a
  * flat UI element growing on screen, while the pinhole projection makes the
  * left and right cards expose opposite faces.
@@ -295,6 +329,7 @@ export function calculateProjectilePerspectiveQuad(
   depth: number,
   directionReference: ProjectileDepthPoint = projectedCenter,
   vanishingPoint: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
+  yawOffsetRadians = 0,
 ): ProjectilePerspectiveQuad {
   const projection = createProjectilePerspectiveProjection(
     projectedCenter,
@@ -303,6 +338,7 @@ export function calculateProjectilePerspectiveQuad(
     depth,
     directionReference,
     vanishingPoint,
+    yawOffsetRadians,
   );
   return {
     topLeft: projectProjectilePerspectiveUv(projection, 0, 0),
@@ -360,7 +396,11 @@ export function createProjectilePerspectiveProjection(
   depth: number,
   directionReference: ProjectileDepthPoint = projectedCenter,
   vanishingPoint: ProjectileDepthPoint = BOSS_PROJECTILE_ORIGIN,
+  yawOffsetRadians = 0,
 ): ProjectilePerspectiveProjection {
+  // Depth is already expressed by the caller's display dimensions. It must
+  // not modify yaw/pitch, otherwise the paper turns while travelling.
+  void depth;
   const halfWidth = Math.max(0, displayWidth) / 2;
   const halfHeight = Math.max(0, displayHeight) / 2;
   // Use the authored near point as the stable lane reference. This matters
@@ -393,17 +433,18 @@ export function createProjectilePerspectiveProjection(
     1,
   );
 
-  // This is a small, real 3D projection rather than a 2D scale/shear trick.
-  // The card plane has yaw (from its left/right lane) and pitch (from its
-  // vertical lane), while screen-space roll is composed later by Projectile.
-  // Mirrored lanes therefore produce mirrored keystones before either signed roll.
-  const orientationEnvelope = lerp(0.44, 1, smoothstep(0.04, 0.92, depth));
+  // This is a real 3D plane orientation rather than a 2D scale/shear trick.
+  // The lane supplies the perspective correction, then one seeded launch yaw
+  // is added around screen/world Y. Both remain fixed for the whole flight;
+  // depth changes only the card's projected position and size.
   const degreesToRadians = Math.PI / 180;
   // Screen-space lane direction and 3D plane yaw have opposite signs: a card
   // travelling toward the left side must open its inner (right) edge toward
   // the Boss ray, with the right lane using the exact mirrored orientation.
-  const yaw = -laneX * 42 * degreesToRadians * orientationEnvelope;
-  const pitch = laneY * 25 * degreesToRadians * orientationEnvelope;
+  const laneYaw = -laneX * 42 * degreesToRadians;
+  const yawLimit = 70 * degreesToRadians;
+  const yaw = clamp(laneYaw + yawOffsetRadians, -yawLimit, yawLimit);
+  const pitch = laneY * 25 * degreesToRadians;
   const cosineYaw = Math.cos(yaw);
   const sineYaw = Math.sin(yaw);
   const cosinePitch = Math.cos(pitch);
@@ -412,6 +453,8 @@ export function createProjectilePerspectiveProjection(
   return {
     halfWidth,
     halfHeight,
+    yawRadians: yaw,
+    pitchRadians: pitch,
     cosineYaw,
     sineYaw,
     cosinePitch,
@@ -451,26 +494,6 @@ export function projectProjectilePerspectiveUv(
   );
   target.x = yawedX / perspectiveDivisor;
   target.y = pitchedY / perspectiveDivisor;
-  return target;
-}
-
-/**
- * Applies screen-space roll after the paper has already been keystone-
- * projected. This ordering is intentional: rolling the source rectangle
- * before the yaw/pitch projection changes the trapezoid itself, while the
- * desired paper motion rotates one rigid, perspective-correct surface.
- */
-export function rotateProjectedSurfacePoint(
-  point: ProjectileDepthPoint,
-  rollRadians: number,
-  target: MutableProjectileDepthPoint = { x: 0, y: 0 },
-): MutableProjectileDepthPoint {
-  const cosine = Math.cos(rollRadians);
-  const sine = Math.sin(rollRadians);
-  const x = point.x;
-  const y = point.y;
-  target.x = x * cosine - y * sine;
-  target.y = x * sine + y * cosine;
   return target;
 }
 
@@ -526,7 +549,7 @@ export function projectileDepthExpansion(depth: number): number {
   // A moderate power curve gives the far card a short readable beat without
   // pinning it to the Boss, then increases screen-space travel each quarter as
   // it approaches the camera.
-  return Math.pow(clamp(depth, 0, 1), 1.35);
+  return Math.pow(clamp(depth, 0, 1), PROJECTILE_DEPTH_EXPONENT);
 }
 
 /** Projects a ray's authored near point to one explicit tunnel depth. */
@@ -605,10 +628,4 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function lerp(from: number, to: number, amount: number): number {
   return from + (to - from) * amount;
-}
-
-function smoothstep(edge0: number, edge1: number, value: number): number {
-  if (edge0 === edge1) return value < edge0 ? 0 : 1;
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
 }

@@ -55,13 +55,16 @@ function verifyNearPlaneTraversal(config: ProjectileConfig): void {
         + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
     },
   );
-  const activeSamples = [0.8, 0.84, 0.88, 0.92, 0.96, 1]
-    .map(projectionAtDepth);
+  const activeSamples = Array.from(
+    { length: 6 },
+    (_, index) => trajectory.contactDepth
+      + (1 - trajectory.contactDepth) * index / 5,
+  ).map(projectionAtDepth);
 
   expect(activeSamples.every((sample) => sample.collisionActive)).toBe(true);
-  // Overscanned edge lanes intentionally finish beyond the screen. They must
-  // still cross a legal player silhouette for multiple active samples before
-  // leaving the near plane, so edge camping is no longer a safe exploit.
+  // Sample from the first reachable upper-arena contact, not only the lower
+  // near plane. Overscanned edge lanes must still cross a legal player
+  // silhouette for multiple active samples, so vertical camping is impossible.
   expect(activeSamples.filter((sample) => (
     canThreatenLegalPlayerPosition(sample.position, radius)
   )).length).toBeGreaterThanOrEqual(2);
@@ -171,7 +174,6 @@ describe('shared projectile perspective depth', () => {
     };
     const final = sampleTunnelProjection(trajectory, finalCollider, almost.depth);
 
-    expect(almost.collisionActive).toBe(true);
     expect(final.collisionActive).toBe(true);
     expect(Math.hypot(
       final.position.x - almost.position.x,
@@ -293,7 +295,7 @@ describe('shared projectile perspective depth', () => {
 
     expect(farTop).toBeLessThan(farBottom);
     expect(nearTop).toBeLessThan(nearBottom);
-    expect(nearTop / nearBottom).toBeLessThan(farTop / farBottom);
+    expect(nearTop / nearBottom).toBeCloseTo(farTop / farBottom, 10);
     // A straight-down shot stays upright: it is a trapezoid, not a rotated
     // sprite. Perspective correctly shifts the arithmetic corner average;
     // the projected texture centre itself remains on the collider.
@@ -384,7 +386,7 @@ describe('shared projectile perspective depth', () => {
     expect(center.bottomLeft.y).toBeCloseTo(center.bottomRight.y, 10);
   });
 
-  it('builds lane yaw progressively without changing its direction mid-flight', () => {
+  it('keeps the lane-corrected plane orientation fixed throughout flight', () => {
     const reference = { x: 92, y: 790 };
     const far = calculateProjectilePerspectiveQuad(
       BOSS_PROJECTILE_ORIGIN,
@@ -410,7 +412,7 @@ describe('shared projectile perspective depth', () => {
     );
 
     expect(innerEdgeRatio(far)).toBeGreaterThan(1);
-    expect(innerEdgeRatio(near)).toBeGreaterThan(innerEdgeRatio(far) + 0.1);
+    expect(innerEdgeRatio(near)).toBeCloseTo(innerEdgeRatio(far), 10);
   });
 
   it('keeps a far authored point separate before converging on the near point', () => {
@@ -428,7 +430,7 @@ describe('shared projectile perspective depth', () => {
     expect(atEntry.position.y).toBeCloseTo(trajectory.nearPoint.y, 10);
   });
 
-  it('activates contact at depth 0.80 while the card is still approaching', () => {
+  it('activates contact as the projected ray reaches the upper player arena', () => {
     const trajectory = createTunnelTrajectory(
       { x: 270, y: 155 },
       { x: 0, y: 300 },
@@ -445,8 +447,8 @@ describe('shared projectile perspective depth', () => {
           + (trajectory.approachPoint.y - trajectory.spawn.y) * depth,
       },
     );
-    const before = sampleAt(PROJECTILE_CONTACT_DEPTH - 0.001);
-    const contact = sampleAt(PROJECTILE_CONTACT_DEPTH);
+    const before = sampleAt(trajectory.contactDepth - 0.001);
+    const contact = sampleAt(trajectory.contactDepth);
     const approaching = sampleAt(0.95);
 
     expect(before.collisionActive).toBe(false);
@@ -455,6 +457,8 @@ describe('shared projectile perspective depth', () => {
     expect(contact.position).not.toEqual(trajectory.nearPoint);
     expect(approaching.position.y).toBeGreaterThan(contact.position.y);
     expect(approaching.depth).toBeLessThan(1);
+    expect(contact.position.y).toBeCloseTo(412, 6);
+    expect(trajectory.contactDepth).toBeLessThan(PROJECTILE_CONTACT_DEPTH);
   });
 
   it('uses the same depth ray for top, side, and wall-style spawns', () => {

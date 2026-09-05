@@ -10,16 +10,15 @@ test('perspective collider activates at visible contact depth and sweeps its han
   await page.getByTestId('skip-camera').click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 8_000 });
   await page.waitForFunction(() => window.__NOXCAT_TEST__?.snapshot().state === 'DODGING');
-  await page.evaluate(() => {
+  const far = await page.evaluate(() => {
     const hook = window.__NOXCAT_TEST__;
     hook?.pauseAttacksForVisualTest();
     hook?.spawnPerspectiveProbeForTest(false);
+    return {
+      session: hook?.snapshot(),
+      projectile: hook?.projectileSnapshot().find((item) => item.isDamage),
+    };
   });
-
-  const far = await page.evaluate(() => ({
-    session: window.__NOXCAT_TEST__?.snapshot(),
-    projectile: window.__NOXCAT_TEST__?.projectileSnapshot().find((item) => item.isDamage),
-  }));
   expect(far.session?.lives).toBe(3);
   expect(far.projectile?.collisionActive).toBe(false);
   // While depth is remote, authored/world motion is deliberately separate
@@ -66,8 +65,8 @@ test('perspective collider activates at visible contact depth and sweeps its han
   );
 });
 
-test('hostile papers rotate the completed perspective surface in either direction', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chromium', 'One WebGL integration covers post-perspective roll');
+test('hostile papers keep one fixed vertical-axis yaw for their entire flight', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'One WebGL integration covers the fixed 3D launch pose');
 
   await page.route('**/api/boss', (route) => route.abort('failed'));
   await page.goto('/?debug=1&demo=off');
@@ -78,28 +77,25 @@ test('hostile papers rotate the completed perspective surface in either directio
     item.kind === 'paper'
       && item.tunnelDepth > 0.2
       && item.tunnelDepth < 0.65
-      && Math.abs(item.rotationSpeed) > 0.4
+      && Math.abs(item.yawOffset) > 0.12
   )), undefined, { timeout: 5_000 });
 
   const initial = await page.evaluate(() => window.__NOXCAT_TEST__?.projectileSnapshot().find((item) => (
     item.kind === 'paper'
       && item.tunnelDepth > 0.2
       && item.tunnelDepth < 0.65
-      && Math.abs(item.rotationSpeed) > 0.4
+      && Math.abs(item.yawOffset) > 0.12
   )));
-  if (!initial) throw new Error('No rotating perspective paper was available');
+  if (!initial) throw new Error('No yawed perspective paper was available');
 
   await page.waitForTimeout(180);
-  const later = await page.evaluate((rotationSpeed) => (
+  const later = await page.evaluate((yawOffset) => (
     window.__NOXCAT_TEST__?.projectileSnapshot().find((item) => (
-      Math.abs(item.rotationSpeed - rotationSpeed) < 1e-9
+      Math.abs(item.yawOffset - yawOffset) < 1e-9
     ))
-  ), initial.rotationSpeed);
+  ), initial.yawOffset);
   expect(later).toBeDefined();
-  const rollDelta = Math.atan2(
-    Math.sin((later?.rollRotation ?? 0) - initial.rollRotation),
-    Math.cos((later?.rollRotation ?? 0) - initial.rollRotation),
-  );
-  expect(Math.abs(rollDelta)).toBeGreaterThan(0.03);
-  expect(Math.sign(rollDelta)).toBe(Math.sign(initial.rotationSpeed));
+  expect(initial.screenRoll).toBeCloseTo(0, 10);
+  expect(later?.screenRoll).toBeCloseTo(0, 10);
+  expect(later?.perspectiveYaw).toBeCloseTo(initial.perspectiveYaw, 10);
 });

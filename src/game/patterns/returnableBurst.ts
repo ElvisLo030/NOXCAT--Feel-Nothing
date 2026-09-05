@@ -5,7 +5,7 @@ import {
   clamp,
   clampPlayerPosition,
   evenlySpaced,
-  randomSignedRotationSpeed,
+  randomSignedYawOffset,
   type PlayerPosition,
 } from './fairness';
 import {
@@ -111,7 +111,7 @@ export function planReturnableBurst(
       vx,
       vy,
       radius: PAPER_PROJECTILE_RADIUS,
-      rotationSpeed: randomSignedRotationSpeed(rng, 0.48, 1.1),
+      yawOffset: randomSignedYawOffset(rng, 8, 22),
       perspectiveTarget: {
         x: clamp(perspectiveTarget.x, 36, 504),
         y: perspectiveY,
@@ -138,7 +138,7 @@ export function planReturnableBurst(
     vx: returnableVx,
     vy: returnableVy,
     radius: RETURNABLE_PROJECTILE_RADIUS,
-    rotationSpeed: randomSignedRotationSpeed(rng, 3.8, 4.4),
+    yawOffset: randomSignedYawOffset(rng, 16, 30),
     perspectiveTarget: {
       x: clamp(returnableTarget.x, 36, 504),
       y: 820,

@@ -650,7 +650,7 @@ export class BattleScene extends Phaser.Scene {
         projectile.collisionPolygon,
         PLAYER_REFLECT_RADIUS - PLAYER_HIT_RADIUS,
       );
-      const sweptHit = distance <= projectile.radius + PLAYER_HIT_RADIUS;
+      const sweptHit = distance <= projectile.effectiveCollisionRadius + PLAYER_HIT_RADIUS;
       const overlapsVisuals = visualSeparation <= 0;
       const reflectionSpeed = Math.max(this.noxcat.speed, frameSpeed);
       if (
@@ -1027,7 +1027,7 @@ export class BattleScene extends Phaser.Scene {
           vx: 0,
           vy: 0,
           radius: 22,
-          rotationSpeed: 4,
+          yawOffset: 24 * Math.PI / 180,
         });
       },
       pauseAttacksForVisualTest: (): void => {
@@ -1138,6 +1138,7 @@ export class BattleScene extends Phaser.Scene {
         previousCollisionY: projectile.previousY,
         previousCollisionActive: projectile.previousCollisionActive,
         radius: projectile.radius,
+        effectiveCollisionRadius: projectile.effectiveCollisionRadius,
         isDamage: projectile.isDamage,
         hasGrazedPlayer: projectile.hasGrazedPlayer,
         kind: projectile.kind,
@@ -1145,8 +1146,9 @@ export class BattleScene extends Phaser.Scene {
         collisionActive: projectile.collisionActive,
         vx: projectile.vx,
         vy: projectile.vy,
-        rotationSpeed: projectile.rotationSpeed,
-        rollRotation: projectile.rollRotation,
+        yawOffset: projectile.yawOffset,
+        perspectiveYaw: projectile.perspectiveYaw,
+        screenRoll: projectile.screenRoll,
         continuingOffscreen: projectile.isContinuingOffscreen,
       })),
       viewportSnapshot: () => ({ ...this.viewportLayout }),

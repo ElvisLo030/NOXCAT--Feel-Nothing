@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { randomSignedRotationSpeed } from '../src/game/patterns/fairness';
+import { randomSignedYawOffset } from '../src/game/patterns/fairness';
 import { planAlternatingZipper } from '../src/game/patterns/alternatingZipper';
 import { planPaperRain } from '../src/game/patterns/paperRain';
 import { planPulseBarrage } from '../src/game/patterns/pulseBarrage';
@@ -10,92 +10,96 @@ import { planTopDownpour } from '../src/game/patterns/topDownpour';
 import {
   createProjectilePerspectiveProjection,
   projectProjectilePerspectiveUv,
-  rotateProjectedSurfacePoint,
 } from '../src/game/systems/ProjectileDepth';
 import { SeededRng } from '../src/utils/rng';
 
-function distance(
-  first: Readonly<{ x: number; y: number }>,
-  second: Readonly<{ x: number; y: number }>,
-): number {
-  return Math.hypot(second.x - first.x, second.y - first.y);
-}
-
-describe('projectile perspective roll composition', () => {
-  it('rotates the completed trapezoid as one rigid surface', () => {
-    const projection = createProjectilePerspectiveProjection(
+describe('projectile fixed vertical-axis yaw', () => {
+  it('adds launch yaw to the lane correction without introducing screen roll', () => {
+    const launchYaw = 18 * Math.PI / 180;
+    const base = createProjectilePerspectiveProjection(
       { x: 145, y: 700 },
       96,
       124,
-      0.86,
+      0.2,
       { x: 110, y: 820 },
     );
-    const before = [
-      projectProjectilePerspectiveUv(projection, 0, 0),
-      projectProjectilePerspectiveUv(projection, 1, 0),
-      projectProjectilePerspectiveUv(projection, 1, 1),
-      projectProjectilePerspectiveUv(projection, 0, 1),
-    ];
-    const roll = Math.PI / 7;
-    const after = before.map((point) => rotateProjectedSurfacePoint(point, roll));
-
-    // Post-projection roll preserves every edge of the already corrected
-    // keystone instead of recomputing a different trapezoid.
-    for (let index = 0; index < before.length; index += 1) {
-      expect(distance(
-        before[index]!,
-        before[(index + 1) % before.length]!,
-      )).toBeCloseTo(distance(
-        after[index]!,
-        after[(index + 1) % after.length]!,
-      ), 10);
-    }
-    expect(rotateProjectedSurfacePoint({ x: 0, y: 0 }, roll)).toEqual({ x: 0, y: 0 });
-    expect(after[1]!.y - after[0]!.y).not.toBeCloseTo(
-      before[1]!.y - before[0]!.y,
-      4,
+    const oriented = createProjectilePerspectiveProjection(
+      { x: 145, y: 700 },
+      96,
+      124,
+      0.9,
+      { x: 110, y: 820 },
+      undefined,
+      launchYaw,
     );
+
+    expect(oriented.yawRadians - base.yawRadians).toBeCloseTo(launchYaw, 10);
+    expect(oriented.pitchRadians).toBeCloseTo(base.pitchRadians, 10);
+
+    // A vertical-axis yaw foreshortens the card in 3D, but its central vertical
+    // line remains vertical in screen space; a 2D roll would move these Xs.
+    const topCentre = projectProjectilePerspectiveUv(oriented, 0.5, 0);
+    const bottomCentre = projectProjectilePerspectiveUv(oriented, 0.5, 1);
+    expect(topCentre.x).toBeCloseTo(0, 10);
+    expect(bottomCentre.x).toBeCloseTo(0, 10);
   });
 
-  it('assigns deterministic visible clockwise and counter-clockwise speeds', () => {
+  it('keeps the same lane yaw and pitch at every flight depth', () => {
+    const createAtDepth = (depth: number) => createProjectilePerspectiveProjection(
+      { x: 390, y: 690 },
+      96,
+      124,
+      depth,
+      { x: 430, y: 820 },
+      undefined,
+      -14 * Math.PI / 180,
+    );
+    const far = createAtDepth(0.08);
+    const near = createAtDepth(0.94);
+
+    expect(near.yawRadians).toBeCloseTo(far.yawRadians, 12);
+    expect(near.pitchRadians).toBeCloseTo(far.pitchRadians, 12);
+  });
+
+  it('assigns deterministic visible clockwise and counter-clockwise yaw offsets', () => {
     const first = new SeededRng(270027);
     const second = new SeededRng(270027);
     const sequence = Array.from(
       { length: 32 },
-      () => randomSignedRotationSpeed(first, 0.48, 1.25),
+      () => randomSignedYawOffset(first, 8, 24),
     );
     const replay = Array.from(
       { length: 32 },
-      () => randomSignedRotationSpeed(second, 0.48, 1.25),
+      () => randomSignedYawOffset(second, 8, 24),
     );
 
     expect(replay).toEqual(sequence);
-    expect(sequence.some((speed) => speed < 0)).toBe(true);
-    expect(sequence.some((speed) => speed > 0)).toBe(true);
-    for (const speed of sequence) {
-      expect(Math.abs(speed)).toBeGreaterThanOrEqual(0.48);
-      expect(Math.abs(speed)).toBeLessThanOrEqual(1.25);
+    expect(sequence.some((yaw) => yaw < 0)).toBe(true);
+    expect(sequence.some((yaw) => yaw > 0)).toBe(true);
+    for (const yaw of sequence) {
+      expect(Math.abs(yaw)).toBeGreaterThanOrEqual(8 * Math.PI / 180);
+      expect(Math.abs(yaw)).toBeLessThanOrEqual(24 * Math.PI / 180);
     }
   });
 
-  it('gives every free-flying document a non-zero seeded roll direction', () => {
-    const rotations = [
+  it('gives every free-flying document one non-zero seeded yaw offset', () => {
+    const yaws = [
       ...planPaperRain(new SeededRng(11), 3, 1, 270)
-        .map(({ rotationSpeed }) => rotationSpeed),
+        .map(({ yawOffset }) => yawOffset),
       ...planTopDownpour(new SeededRng(12), 3, 1, 270).projectiles
-        .map(({ rotationSpeed }) => rotationSpeed),
+        .map(({ yawOffset }) => yawOffset),
       ...planPulseBarrage(new SeededRng(13), 3, 1, 270).formations
-        .flatMap(({ projectiles }) => projectiles.map(({ rotationSpeed }) => rotationSpeed)),
+        .flatMap(({ projectiles }) => projectiles.map(({ yawOffset }) => yawOffset)),
       ...planAlternatingZipper(new SeededRng(14), 3, 0, 1, 270).shots
-        .map(({ projectile }) => projectile.rotationSpeed),
+        .map(({ projectile }) => projectile.yawOffset),
       ...planRevisionHoming(new SeededRng(15), 3, 1)
-        .map(({ rotationSpeed }) => rotationSpeed),
+        .map(({ yawOffset }) => yawOffset),
       ...planReturnableBurst(new SeededRng(16), 3, 0, 1).projectiles
-        .map(({ rotationSpeed }) => rotationSpeed),
+        .map(({ yawOffset }) => yawOffset),
     ];
 
-    expect(rotations.every((speed) => speed != null && Math.abs(speed) >= 0.42)).toBe(true);
-    expect(rotations.some((speed) => speed! < 0)).toBe(true);
-    expect(rotations.some((speed) => speed! > 0)).toBe(true);
+    expect(yaws.every((yaw) => yaw != null && Math.abs(yaw) >= 7 * Math.PI / 180)).toBe(true);
+    expect(yaws.some((yaw) => yaw! < 0)).toBe(true);
+    expect(yaws.some((yaw) => yaw! > 0)).toBe(true);
   });
 });

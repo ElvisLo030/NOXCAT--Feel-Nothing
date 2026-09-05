@@ -6,7 +6,7 @@ import {
   ATTACK_NEAR_MIN_X,
   clamp,
   evenlySpaced,
-  randomSignedRotationSpeed,
+  randomSignedYawOffset,
 } from './fairness';
 import {
   createPatternTimeline,
@@ -75,7 +75,7 @@ export function planTopDownpour(
       vx: 0,
       vy: speed,
       radius: PROJECTILE_RADIUS,
-      rotationSpeed: randomSignedRotationSpeed(rng, 0.55, 1.05),
+      yawOffset: randomSignedYawOffset(rng, 8, 20),
       perspectiveOrigin: { x, y: TOP_DOWNPOUR_ORIGIN_Y },
       perspectiveTarget: { x, y: TOP_DOWNPOUR_TARGET_Y },
       perspectiveDurationMs: Math.round(

@@ -80,6 +80,37 @@ test('a real pointer drag into a real paper-rain card damages NOXCAT', async ({ 
   expect(result?.lives).toBe(2);
 });
 
+test('moving NOXCAT to the upper arena does not bypass paper-rain damage', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Deterministic mouse timing covers upper-arena collision activation');
+
+  const canvas = await startFallbackBattle(page);
+  const [box, visual] = await Promise.all([
+    canvas.boundingBox(),
+    page.evaluate(() => window.__NOXCAT_TEST__?.visualSnapshot()),
+  ]);
+  if (!box || !visual) throw new Error('Canvas or NOXCAT position unavailable');
+
+  const start = toScreen(box, visual.x, visual.y + 72);
+  const upperCentre = toScreen(box, 270, 430 + 72);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(upperCentre.x, upperCentre.y, { steps: 6 });
+  await page.waitForFunction(() => (
+    (window.__NOXCAT_TEST__?.visualSnapshot().y ?? 999) < 455
+  ));
+  await page.mouse.up();
+
+  await page.waitForFunction(() => (
+    window.__NOXCAT_TEST__?.waveSnapshot().pattern === 'paper_rain'
+      && window.__NOXCAT_TEST__?.waveSnapshot().phase === 'ACTIVE'
+  ));
+  await page.waitForFunction(() => (
+    (window.__NOXCAT_TEST__?.snapshot().lives ?? 3) < 3
+  ), undefined, { timeout: 5_000 });
+
+  expect(await page.evaluate(() => window.__NOXCAT_TEST__?.snapshot().lives)).toBe(2);
+});
+
 test('the full NOXCAT silhouette fits through the advertised paper safe lane', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Deterministic mouse timing covers the live Phaser safe lane');
 

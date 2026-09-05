@@ -27,6 +27,7 @@ export interface NoxcatProjectileSnapshot {
   readonly previousCollisionY: number;
   readonly previousCollisionActive: boolean;
   readonly radius: number;
+  readonly effectiveCollisionRadius: number;
   readonly isDamage: boolean;
   readonly hasGrazedPlayer: boolean;
   readonly kind: ProjectileKind;
@@ -34,8 +35,9 @@ export interface NoxcatProjectileSnapshot {
   readonly collisionActive: boolean;
   readonly vx: number;
   readonly vy: number;
-  readonly rotationSpeed: number;
-  readonly rollRotation: number;
+  readonly yawOffset: number;
+  readonly perspectiveYaw: number;
+  readonly screenRoll: number;
   readonly continuingOffscreen: boolean;
 }
 

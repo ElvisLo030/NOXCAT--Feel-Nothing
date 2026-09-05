@@ -7,7 +7,7 @@ import {
   ATTACK_NEAR_MAX_X,
   ATTACK_NEAR_MIN_X,
   evenlySpaced,
-  randomSignedRotationSpeed,
+  randomSignedYawOffset,
 } from './fairness';
 import {
   createPatternTimeline,
@@ -73,7 +73,7 @@ export function planPaperRain(
       vx,
       vy,
       radius: PAPER_PROJECTILE_RADIUS,
-      rotationSpeed: randomSignedRotationSpeed(rng, 0.48, 1.25),
+      yawOffset: randomSignedYawOffset(rng, 8, 24),
       perspectiveTarget: {
         x: Math.min(ATTACK_NEAR_MAX_X, Math.max(ATTACK_NEAR_MIN_X, perspectiveTarget.x)),
         y: perspectiveY,
